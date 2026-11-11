@@ -21,13 +21,17 @@ gcloud artifacts repositories describe "$REPO" --location="$REGION" > /dev/null 
 gcloud storage buckets describe "gs://$BUCKET" > /dev/null 2>&1 ||
   gcloud storage buckets create "gs://$BUCKET" --location="$REGION" --uniform-bucket-level-access
 
+# Cloud Build and the VM both run as the default compute service account, which new
+# projects create without broad roles.
+SA="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" \
+  --role=roles/cloudbuild.builds.builder --condition=None --quiet > /dev/null
+
 # Built on Cloud Build rather than locally: Cloud Shell's network can be slow for image pulls.
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   gcloud builds submit --region="$REGION" --config=cloudbuild.cpu.yaml --substitutions=_IMAGE="$IMAGE" .
 fi
 
-# The VM runs as the default compute service account.
-SA="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" \
   --role=roles/artifactregistry.reader --condition=None --quiet > /dev/null
 gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --member="serviceAccount:$SA" \

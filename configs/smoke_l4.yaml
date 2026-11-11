@@ -1,0 +1,47 @@
+# The smoke experiment on an L4: real vLLM, real sleep/wake, small ungated models.
+experiment: smoke-l4
+output_dir: /results
+
+workload:
+  name: inline
+  texts:
+    - "Absolutely loved it, best movie of the year."
+    - "Boring and way too long."
+    - "The acting was brilliant."
+    - "I walked out halfway through."
+    - "A heartwarming story, highly recommend."
+    - "Terrible script, worse direction."
+
+models:
+  a: {hf_id: Qwen/Qwen2.5-0.5B-Instruct, port: 8001}
+  b: {hf_id: HuggingFaceTB/SmolLM2-360M-Instruct, port: 8002}
+
+vllm:
+  gpu_memory_utilization: 0.4
+  max_model_len: 2048
+  enforce_eager: false
+  env: {}
+
+max_tokens: 32
+max_concurrency: 8
+
+plans:
+  all_a:
+    - {op: map, name: sentiment, model: a, prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"}
+    - {op: map, name: summary, model: a, prompt: "Summarize this review in five words: {text}"}
+  all_b:
+    - {op: map, name: sentiment, model: b, prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"}
+    - {op: map, name: summary, model: b, prompt: "Summarize this review in five words: {text}"}
+  mixed:
+    - {op: map, name: sentiment, model: a, prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"}
+    - {op: map, name: summary, model: b, prompt: "Summarize this review in five words: {text}"}
+  moa:
+    - op: moa
+      name: sentiment
+      proposers: [a, b]
+      aggregator: a
+      prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"
+      aggregate_prompt: "Two assistants answered whether this review is positive or negative:\n{proposals}\nReview: {text}\nGive the final answer in one word."
+
+strategies: [naive, batched]
+repeats: 3

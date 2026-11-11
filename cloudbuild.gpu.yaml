@@ -1,0 +1,10 @@
+# Builds the vLLM image on Cloud Build:
+#   gcloud builds submit --config=cloudbuild.gpu.yaml --substitutions=_IMAGE=<image> .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, --build-arg, BASE=mirror.gcr.io/vllm/vllm-openai:v0.30.0, -t, $_IMAGE, .]
+images: [$_IMAGE]
+timeout: 3600s
+options:
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 200

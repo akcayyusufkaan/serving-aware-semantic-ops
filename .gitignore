@@ -12,3 +12,6 @@ data/*
 !data/.gitkeep
 *.sif
 requests.jsonl
+
+# personal GCP account setup, not part of the experiment
+ops/

@@ -1,5 +1,7 @@
-# Pinned so every environment runs the same vLLM.
-FROM vllm/vllm-openai:v0.30.0
+# Pinned so every environment runs the same vLLM. Cloud Build passes a mirror.gcr.io base
+# to avoid Docker Hub rate limits.
+ARG BASE=vllm/vllm-openai:v0.30.0
+FROM ${BASE}
 
 WORKDIR /app
 

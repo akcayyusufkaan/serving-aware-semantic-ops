@@ -58,6 +58,7 @@ rankings are compared with Kendall's tau and two Pareto frontiers.
 | `harness/workloads.py` | Workload loading and quality evaluation |
 | `harness/runner.py` | Entry point, resume and result writing |
 | `configs/smoke.yaml` | Two small models, for a 4 GB laptop GPU |
+| `configs/smoke_l4.yaml` | The same small models on an L4 |
 | `configs/cuad.yaml` | Main experiment |
 | `launch/` | Docker (laptop), GCE startup script and CPU test VM, Slurm + Apptainer (TRUBA), Kubernetes Job |
 | `Dockerfile.cpu`, `tests/stub_vllm/` | CPU image with a stub vLLM for testing without a GPU |
@@ -100,6 +101,14 @@ PROJECT=<project-id> ./launch/gcp_cpu_test.sh
 It creates the Artifact Registry repository and the bucket, pushes a CPU image with a stub vLLM
 (`Dockerfile.cpu`) and starts an e2-standard-2 VM that runs `configs/smoke.yaml`. Store the Hugging
 Face token as the Secret Manager secret `hf-token` before the GPU run.
+
+The GPU run builds the vLLM image on Cloud Build and starts a g2-standard-8 (1x L4) VM from a
+Deep Learning VM image:
+
+```bash
+PROJECT=<project-id> ./launch/gcp_gpu_run.sh                            # configs/smoke_l4.yaml
+PROJECT=<project-id> CONFIG=configs/cuad.yaml SPOT=1 ./launch/gcp_gpu_run.sh
+```
 
 ### TRUBA / Kubernetes
 
