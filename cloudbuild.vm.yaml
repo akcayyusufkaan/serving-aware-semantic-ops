@@ -19,3 +19,5 @@ substitutions:
   _ROUNDS: "18"
   _MACHINE: g2-standard-12
 timeout: 12000s
+options:
+  substitutionOption: ALLOW_LOOSE

@@ -15,7 +15,7 @@ IMAGE=$(md semops-image)
 BUCKET=$(md semops-bucket)
 CONFIG=$(md semops-config || echo configs/cuad.yaml)
 ON_FINISH=$(md semops-on-finish || echo delete)
-WORK=/opt/semops
+WORK=${SEMOPS_WORK:-/opt/semops}
 RESULTS="gs://${BUCKET}/results"
 
 mkdir -p "$WORK/hf-cache" "$WORK/results" "$WORK/data"
