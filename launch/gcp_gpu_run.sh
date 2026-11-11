@@ -14,6 +14,7 @@ BUCKET=${BUCKET:-${PROJECT}-semops}
 REPO=${REPO:-semops}
 VM=${VM:-semops-l4}
 CONFIG=${CONFIG:-configs/smoke_l4.yaml}
+MACHINE=${MACHINE:-g2-standard-12}
 MAX_RUN=${MAX_RUN:-3h}
 TAG=${TAG:-$(git rev-parse --short HEAD)}
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/semops-harness:${TAG}"
@@ -41,11 +42,11 @@ EXP=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['experiment
 if [ "${SKIP_BUILD:-0}" = "1" ] && [ "${RETRY:-0}" = "1" ]; then
   # Keep trying for up to 3 hours on Cloud Build; Cloud Shell can be closed.
   gcloud builds submit --async --region="$REGION" --config=cloudbuild.vm.yaml \
-    --substitutions="^;^_IMAGE=$IMAGE;_BUCKET=$BUCKET;_CONFIG=$CONFIG_URL;_VM=$VM;_ZONES=$ZONES;_SPOT_ARGS=$SPOT_ARGS;_MAX_RUN=$MAX_RUN" .
+    --substitutions="^;^_IMAGE=$IMAGE;_BUCKET=$BUCKET;_CONFIG=$CONFIG_URL;_VM=$VM;_ZONES=$ZONES;_SPOT_ARGS=$SPOT_ARGS;_MAX_RUN=$MAX_RUN;_MACHINE=$MACHINE" .
   echo "Retrying in Cloud Build; you can close Cloud Shell. Status: gcloud builds list --region=$REGION --limit=1"
 elif [ "${SKIP_BUILD:-0}" = "1" ]; then
   IMAGE="$IMAGE" BUCKET="$BUCKET" CONFIG="$CONFIG_URL" VM="$VM" ZONES="$ZONES" \
-    MAX_RUN="$MAX_RUN" SPOT_ARGS="$SPOT_ARGS" bash launch/gcp_create_vm.sh
+    MAX_RUN="$MAX_RUN" SPOT_ARGS="$SPOT_ARGS" MACHINE="$MACHINE" bash launch/gcp_create_vm.sh
 else
   gcloud builds submit --async --region="$REGION" --config=cloudbuild.gpu.yaml \
     --substitutions="^;^_IMAGE=$IMAGE;_BUCKET=$BUCKET;_CONFIG=$CONFIG_URL;_VM=$VM;_ZONES=$ZONES;_SPOT_ARGS=$SPOT_ARGS;_MAX_RUN=$MAX_RUN" .

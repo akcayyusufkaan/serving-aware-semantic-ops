@@ -58,6 +58,9 @@ if lspci | grep -qi nvidia; then
 fi
 
 LOG="$WORK/results/vm_$(date +%Y%m%dT%H%M%S).log"
+# Host memory every 5 s (used MiB), to see peaks around model switches.
+( while true; do echo "$(date +%T) $(free -m | awk '/Mem:/{print $3}')"; sleep 5; done ) > "${LOG%.log}_mem.log" &
+MEM_PID=$!
 docker run --rm "${GPU_ARGS[@]}" --ipc=host \
   -v "$WORK/hf-cache:/models" \
   -v "$WORK/results:/results" \
@@ -67,6 +70,10 @@ docker run --rm "${GPU_ARGS[@]}" --ipc=host \
   "$IMAGE" --config "$CONFIG" 2>&1 | tee "$LOG"
 STATUS=${PIPESTATUS[0]}
 echo "harness exited with status $STATUS"
+
+kill "$MEM_PID" 2> /dev/null
+# Kernel messages (e.g. the OOM killer) and memory state, for diagnosing failed runs.
+{ date; free -m; nvidia-smi; dmesg | tail -300; } > "${LOG%.log}_system.log" 2>&1
 
 gcloud storage rsync -r "$WORK/results" "$RESULTS"
 # Picked up by the e-mail alert, if one is set up.

@@ -13,7 +13,9 @@ steps:
       - MAX_RUN=$_MAX_RUN
       - SPOT_ARGS=$_SPOT_ARGS
       - ROUNDS=$_ROUNDS
+      - MACHINE=$_MACHINE
       - WAIT=600
 substitutions:
   _ROUNDS: "18"
+  _MACHINE: g2-standard-12
 timeout: 12000s
