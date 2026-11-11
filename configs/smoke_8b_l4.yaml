@@ -18,8 +18,8 @@ models:
   qwen:  {hf_id: Qwen/Qwen2.5-7B-Instruct, port: 8002}
 
 vllm:
-  gpu_memory_utilization: 0.8
-  max_model_len: 4096
+  gpu_memory_utilization: 0.85  # a sleeping 8B server still holds ~1.8 GiB; 0.9 left no room to wake the other
+  max_model_len: 2048
   enforce_eager: false
   env: {}
 

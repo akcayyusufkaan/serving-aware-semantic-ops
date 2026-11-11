@@ -1,0 +1,19 @@
+# Retries VM creation across zones until one has L4 capacity, without an open Cloud Shell.
+# Started by launch/gcp_gpu_run.sh with SKIP_BUILD=1 RETRY=1.
+steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args: [launch/gcp_create_vm.sh]
+    env:
+      - IMAGE=$_IMAGE
+      - BUCKET=$_BUCKET
+      - CONFIG=$_CONFIG
+      - VM=$_VM
+      - ZONES=$_ZONES
+      - MAX_RUN=$_MAX_RUN
+      - SPOT_ARGS=$_SPOT_ARGS
+      - ROUNDS=$_ROUNDS
+      - WAIT=600
+substitutions:
+  _ROUNDS: "18"
+timeout: 12000s

@@ -4,7 +4,7 @@
 #   PROJECT=<project-id> CONFIG=configs/smoke_l4.yaml ./launch/gcp_gpu_run.sh
 # By default this submits a Cloud Build job that builds the image and then creates the VM, and
 # returns at once. SKIP_BUILD=1 reuses the image tagged with the current commit and creates the
-# VM directly. SPOT=1 uses a spot VM. The VM uploads results, deletes itself, and is stopped
+# VM directly; adding RETRY=1 keeps retrying zones on Cloud Build for up to 3 hours. SPOT=1 uses a spot VM. The VM uploads results, deletes itself, and is stopped
 # after MAX_RUN in any case.
 set -euo pipefail
 PROJECT=${PROJECT:?set PROJECT to your project id}
@@ -38,7 +38,12 @@ CONFIG_URL="gs://${BUCKET}/configs/$(basename "$CONFIG")"
 gcloud storage cp "$CONFIG" "$CONFIG_URL"
 EXP=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['experiment'])")
 
-if [ "${SKIP_BUILD:-0}" = "1" ]; then
+if [ "${SKIP_BUILD:-0}" = "1" ] && [ "${RETRY:-0}" = "1" ]; then
+  # Keep trying for up to 3 hours on Cloud Build; Cloud Shell can be closed.
+  gcloud builds submit --async --region="$REGION" --config=cloudbuild.vm.yaml \
+    --substitutions="^;^_IMAGE=$IMAGE;_BUCKET=$BUCKET;_CONFIG=$CONFIG_URL;_VM=$VM;_ZONES=$ZONES;_SPOT_ARGS=$SPOT_ARGS;_MAX_RUN=$MAX_RUN" .
+  echo "Retrying in Cloud Build; you can close Cloud Shell. Status: gcloud builds list --region=$REGION --limit=1"
+elif [ "${SKIP_BUILD:-0}" = "1" ]; then
   IMAGE="$IMAGE" BUCKET="$BUCKET" CONFIG="$CONFIG_URL" VM="$VM" ZONES="$ZONES" \
     MAX_RUN="$MAX_RUN" SPOT_ARGS="$SPOT_ARGS" bash launch/gcp_create_vm.sh
 else
