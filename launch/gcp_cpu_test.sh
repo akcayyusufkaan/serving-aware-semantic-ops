@@ -14,16 +14,17 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/semops-harness:cpu-test"
 
 gcloud config set project "$PROJECT"
 gcloud services enable compute.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com storage.googleapis.com
+  secretmanager.googleapis.com storage.googleapis.com cloudbuild.googleapis.com
 
 gcloud artifacts repositories describe "$REPO" --location="$REGION" > /dev/null 2>&1 ||
   gcloud artifacts repositories create "$REPO" --repository-format=docker --location="$REGION"
 gcloud storage buckets describe "gs://$BUCKET" > /dev/null 2>&1 ||
   gcloud storage buckets create "gs://$BUCKET" --location="$REGION" --uniform-bucket-level-access
 
-gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-docker build -f Dockerfile.cpu -t "$IMAGE" .
-docker push "$IMAGE"
+# Built on Cloud Build rather than locally: Cloud Shell's network can be slow for image pulls.
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  gcloud builds submit --region="$REGION" --config=cloudbuild.cpu.yaml --substitutions=_IMAGE="$IMAGE" .
+fi
 
 # The VM runs as the default compute service account.
 SA="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"

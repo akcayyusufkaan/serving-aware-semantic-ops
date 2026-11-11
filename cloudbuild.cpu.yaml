@@ -1,0 +1,6 @@
+# Builds the CPU test image on Cloud Build:
+#   gcloud builds submit --config=cloudbuild.cpu.yaml --substitutions=_IMAGE=<image> .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, -f, Dockerfile.cpu, -t, $_IMAGE, .]
+images: [$_IMAGE]
