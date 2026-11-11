@@ -35,6 +35,8 @@ mean of 3 repeats; repeats differ by less than 1%):
 The workload is a small test, so these numbers show the direction of the effects, not the size of
 the effect on CUAD.
 
+The full progress report, including related work and next steps, is in [docs/progress_report.md](docs/progress_report.md).
+
 ## How it works
 
 One image, one config, one command. Only the launcher changes between environments.
