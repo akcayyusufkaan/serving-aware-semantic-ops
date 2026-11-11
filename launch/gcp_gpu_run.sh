@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds the vLLM image on Cloud Build and starts a g2-standard-8 (1x L4) VM that runs one config.
+# Starts a Cloud Build job that builds the vLLM image and then creates a g2-standard-8 (1x L4) VM.
+# Returns immediately; the VM runs the config, uploads results to GCS and stops itself.
 # Run from Cloud Shell in the repository root after gcp_cpu_test.sh has set up the project:
 #   PROJECT=<project-id> ./launch/gcp_gpu_run.sh                 # configs/smoke_l4.yaml
-#   PROJECT=<project-id> CONFIG=configs/cuad.yaml ./launch/gcp_gpu_run.sh
-# SPOT=1 uses a spot VM (cheaper, may be preempted; the run resumes on restart).
+#   PROJECT=<project-id> CONFIG=configs/cuad.yaml SPOT=1 ./launch/gcp_gpu_run.sh
 set -euo pipefail
 PROJECT=${PROJECT:?set PROJECT to your project id}
 REGION=${REGION:-europe-west4}
@@ -12,32 +12,31 @@ BUCKET=${BUCKET:-${PROJECT}-semops}
 REPO=${REPO:-semops}
 VM=${VM:-semops-l4}
 CONFIG=${CONFIG:-configs/smoke_l4.yaml}
+MAX_RUN=${MAX_RUN:-3h}   # hard limit: the VM is stopped after this even if the run hangs
 TAG=${TAG:-$(git rev-parse --short HEAD)}
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/semops-harness:${TAG}"
+SPOT_ARGS=""
+if [ "${SPOT:-0}" = "1" ]; then SPOT_ARGS="--provisioning-model=SPOT"; fi
 
 gcloud config set project "$PROJECT"
 
-if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  gcloud builds submit --region="$REGION" --config=cloudbuild.gpu.yaml --substitutions=_IMAGE="$IMAGE" .
-fi
+# Cloud Build and the VM run as the default compute service account: Cloud Build creates the VM,
+# and the VM writes a log entry and deletes itself when the run ends.
+SA="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+for role in roles/compute.instanceAdmin.v1 roles/iam.serviceAccountUser roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" \
+    --role="$role" --condition=None --quiet > /dev/null
+done
 
-SPOT_ARGS=()
-if [ "${SPOT:-0}" = "1" ]; then SPOT_ARGS=(--provisioning-model=SPOT --instance-termination-action=STOP); fi
+gcloud builds submit --async --region="$REGION" --config=cloudbuild.gpu.yaml \
+  --substitutions="_IMAGE=$IMAGE,_BUCKET=$BUCKET,_CONFIG=$CONFIG,_VM=$VM,_ZONE=$ZONE,_SPOT_ARGS=$SPOT_ARGS,_MAX_RUN=$MAX_RUN" .
 
-gcloud compute instances create "$VM" --zone="$ZONE" \
-  --machine-type=g2-standard-8 --accelerator=type=nvidia-l4,count=1 \
-  --maintenance-policy=TERMINATE "${SPOT_ARGS[@]}" \
-  --image-family=common-cu129-ubuntu-2204-nvidia-580 --image-project=deeplearning-platform-release \
-  --boot-disk-size=200GB --scopes=cloud-platform \
-  --metadata-from-file=startup-script=launch/gcp_vm_startup.sh \
-  --metadata="semops-image=$IMAGE,semops-bucket=$BUCKET,semops-config=$CONFIG"
-
-EXP=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$CONFIG'))['experiment'])")
+EXP=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['experiment'])")
 cat <<MSG
 
-VM $VM started with $CONFIG. Check progress and results:
-  gcloud compute instances describe $VM --zone=$ZONE --format="value(status)"
+Build submitted; you can close Cloud Shell. The VM deletes itself after uploading results,
+and is stopped after $MAX_RUN in any case. To check:
+  gcloud builds list --region=$REGION --limit=1             # SUCCESS = VM created
+  gcloud compute instances list                             # empty = VM gone
   gcloud storage cat gs://$BUCKET/results/$EXP/runs.jsonl | wc -l
-The VM stops itself when the run ends. Delete it afterwards:
-  gcloud compute instances delete $VM --zone=$ZONE
 MSG

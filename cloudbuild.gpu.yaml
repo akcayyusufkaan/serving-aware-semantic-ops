@@ -1,9 +1,29 @@
-# Builds the vLLM image on Cloud Build:
-#   gcloud builds submit --config=cloudbuild.gpu.yaml --substitutions=_IMAGE=<image> .
+# Builds the vLLM image and then starts the L4 VM, so nothing has to wait in Cloud Shell.
+# Started by launch/gcp_gpu_run.sh.
 steps:
   - name: gcr.io/cloud-builders/docker
     args: [build, --build-arg, BASE=mirror.gcr.io/vllm/vllm-openai:v0.30.0, -t, $_IMAGE, .]
-images: [$_IMAGE]
+  - name: gcr.io/cloud-builders/docker
+    args: [push, $_IMAGE]
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud compute instances create $_VM --zone=$_ZONE \
+          --machine-type=g2-standard-8 --accelerator=type=nvidia-l4,count=1 \
+          --maintenance-policy=TERMINATE $_SPOT_ARGS \
+          --max-run-duration=$_MAX_RUN --instance-termination-action=STOP \
+          --image-family=common-cu129-ubuntu-2204-nvidia-580 --image-project=deeplearning-platform-release \
+          --boot-disk-size=200GB --scopes=cloud-platform \
+          --metadata-from-file=startup-script=launch/gcp_vm_startup.sh \
+          --metadata=semops-image=$_IMAGE,semops-bucket=$_BUCKET,semops-config=$_CONFIG
+substitutions:
+  _VM: semops-l4
+  _ZONE: europe-west4-a
+  _CONFIG: configs/smoke_l4.yaml
+  _SPOT_ARGS: ""
+  _MAX_RUN: 3h
 timeout: 3600s
 options:
   machineType: E2_HIGHCPU_8

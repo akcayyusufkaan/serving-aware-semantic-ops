@@ -3,7 +3,7 @@
 #   semops-image     image to run (Artifact Registry)
 #   semops-bucket    GCS bucket name for data/ and results/
 #   semops-config    config inside the image (default: configs/cuad.yaml)
-#   semops-shutdown  "false" keeps the VM running after the run (default: true)
+#   semops-on-finish delete (default) | stop | none: what the VM does after uploading results
 # Uses the GPU when one is present. Startup scripts run on every boot, so a restarted
 # spot VM pulls earlier results back and the runner skips finished runs.
 set -uo pipefail
@@ -14,7 +14,7 @@ md() { curl -sf -H "Metadata-Flavor: Google" \
 IMAGE=$(md semops-image)
 BUCKET=$(md semops-bucket)
 CONFIG=$(md semops-config || echo configs/cuad.yaml)
-SHUTDOWN=$(md semops-shutdown || echo true)
+ON_FINISH=$(md semops-on-finish || echo delete)
 WORK=/opt/semops
 RESULTS="gs://${BUCKET}/results"
 
@@ -49,14 +49,23 @@ if lspci | grep -qi nvidia; then
   GPU_ARGS=(--gpus all)
 fi
 
+LOG="$WORK/results/vm_$(date +%Y%m%dT%H%M%S).log"
 docker run --rm "${GPU_ARGS[@]}" --ipc=host \
   -v "$WORK/hf-cache:/models" \
   -v "$WORK/results:/results" \
   -v "$WORK/data:/data:ro" \
   -e HF_TOKEN -e RUN_ENV=gcp -e IMAGE_DIGEST="$IMAGE" \
-  "$IMAGE" --config "$CONFIG"
-echo "harness exited with status $?"
+  "$IMAGE" --config "$CONFIG" 2>&1 | tee "$LOG"
+STATUS=${PIPESTATUS[0]}
+echo "harness exited with status $STATUS"
 
 gcloud storage rsync -r "$WORK/results" "$RESULTS"
+# Picked up by the e-mail alert, if one is set up.
+gcloud logging write semops "run finished: config=$CONFIG status=$STATUS results=$RESULTS" --severity=NOTICE || true
 
-if [ "$SHUTDOWN" = "true" ]; then shutdown -h now; fi
+NAME=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name)
+ZONE=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/zone | awk -F/ '{print $NF}')
+case "$ON_FINISH" in
+  delete) gcloud compute instances delete "$NAME" --zone="$ZONE" --quiet || shutdown -h now ;;
+  stop) shutdown -h now ;;
+esac
