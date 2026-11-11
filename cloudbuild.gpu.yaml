@@ -1,4 +1,4 @@
-# Builds the vLLM image and then starts the L4 VM, so nothing has to wait in Cloud Shell.
+# Builds the vLLM image and then creates the L4 VM, so nothing has to wait in Cloud Shell.
 # Started by launch/gcp_gpu_run.sh.
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -7,20 +7,18 @@ steps:
     args: [push, $_IMAGE]
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
-    args:
-      - -c
-      - |
-        gcloud compute instances create $_VM --zone=$_ZONE \
-          --machine-type=g2-standard-8 --accelerator=type=nvidia-l4,count=1 \
-          --maintenance-policy=TERMINATE $_SPOT_ARGS \
-          --max-run-duration=$_MAX_RUN --instance-termination-action=STOP \
-          --image-family=common-cu129-ubuntu-2204-nvidia-580 --image-project=deeplearning-platform-release \
-          --boot-disk-size=200GB --scopes=cloud-platform \
-          --metadata-from-file=startup-script=launch/gcp_vm_startup.sh \
-          --metadata=semops-image=$_IMAGE,semops-bucket=$_BUCKET,semops-config=$_CONFIG
+    args: [launch/gcp_create_vm.sh]
+    env:
+      - IMAGE=$_IMAGE
+      - BUCKET=$_BUCKET
+      - CONFIG=$_CONFIG
+      - VM=$_VM
+      - ZONES=$_ZONES
+      - MAX_RUN=$_MAX_RUN
+      - SPOT_ARGS=$_SPOT_ARGS
 substitutions:
   _VM: semops-l4
-  _ZONE: europe-west4-a
+  _ZONES: us-central1-a us-central1-b us-central1-c europe-west4-a europe-west4-b europe-west4-c
   _CONFIG: configs/smoke_l4.yaml
   _SPOT_ARGS: ""
   _MAX_RUN: 3h

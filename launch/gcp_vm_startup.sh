@@ -2,7 +2,7 @@
 # GCE startup script. Settings come from instance metadata:
 #   semops-image     image to run (Artifact Registry)
 #   semops-bucket    GCS bucket name for data/ and results/
-#   semops-config    config inside the image (default: configs/cuad.yaml)
+#   semops-config    config path inside the image, or a gs:// URL (default: configs/cuad.yaml)
 #   semops-on-finish delete (default) | stop | none: what the VM does after uploading results
 # Uses the GPU when one is present. Startup scripts run on every boot, so a restarted
 # spot VM pulls earlier results back and the runner skips finished runs.
@@ -29,6 +29,14 @@ docker pull "$IMAGE"
 gcloud storage rsync -r "$RESULTS" "$WORK/results" 2> /dev/null || true
 gcloud storage rsync -r "gs://${BUCKET}/data" "$WORK/data" 2> /dev/null || true
 
+# A config in GCS overrides the one baked into the image, so config changes need no rebuild.
+CONFIG_MOUNT=()
+if [[ "$CONFIG" == gs://* ]]; then
+  gcloud storage cp "$CONFIG" "$WORK/run_config.yaml"
+  CONFIG_MOUNT=(-v "$WORK/run_config.yaml:/app/run_config.yaml:ro")
+  CONFIG=/app/run_config.yaml
+fi
+
 HF_TOKEN=$(gcloud secrets versions access latest --secret=hf-token 2> /dev/null || true)
 export HF_TOKEN
 
@@ -54,6 +62,7 @@ docker run --rm "${GPU_ARGS[@]}" --ipc=host \
   -v "$WORK/hf-cache:/models" \
   -v "$WORK/results:/results" \
   -v "$WORK/data:/data:ro" \
+  "${CONFIG_MOUNT[@]}" \
   -e HF_TOKEN -e RUN_ENV=gcp -e IMAGE_DIGEST="$IMAGE" \
   "$IMAGE" --config "$CONFIG" 2>&1 | tee "$LOG"
 STATUS=${PIPESTATUS[0]}

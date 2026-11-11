@@ -1,0 +1,48 @@
+# The smoke experiment with the two 8B-class models of the main experiment, on an L4.
+# Measures realistic model-switch cost before the CUAD runs. Llama needs an HF token (hf-token secret).
+experiment: smoke-8b-l4
+output_dir: /results
+
+workload:
+  name: inline
+  texts:
+    - "Absolutely loved it, best movie of the year."
+    - "Boring and way too long."
+    - "The acting was brilliant."
+    - "I walked out halfway through."
+    - "A heartwarming story, highly recommend."
+    - "Terrible script, worse direction."
+
+models:
+  llama: {hf_id: meta-llama/Llama-3.1-8B-Instruct, port: 8001}
+  qwen:  {hf_id: Qwen/Qwen2.5-7B-Instruct, port: 8002}
+
+vllm:
+  gpu_memory_utilization: 0.8
+  max_model_len: 4096
+  enforce_eager: false
+  env: {}
+
+max_tokens: 32
+max_concurrency: 8
+
+plans:
+  all_llama:
+    - {op: map, name: sentiment, model: llama, prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"}
+    - {op: map, name: summary, model: llama, prompt: "Summarize this review in five words: {text}"}
+  all_qwen:
+    - {op: map, name: sentiment, model: qwen, prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"}
+    - {op: map, name: summary, model: qwen, prompt: "Summarize this review in five words: {text}"}
+  mixed:
+    - {op: map, name: sentiment, model: qwen, prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"}
+    - {op: map, name: summary, model: llama, prompt: "Summarize this review in five words: {text}"}
+  moa:
+    - op: moa
+      name: sentiment
+      proposers: [llama, qwen]
+      aggregator: llama
+      prompt: "Is this review positive or negative? Answer with one word.\nReview: {text}"
+      aggregate_prompt: "Two assistants answered whether this review is positive or negative:\n{proposals}\nReview: {text}\nGive the final answer in one word."
+
+strategies: [naive, batched]
+repeats: 3

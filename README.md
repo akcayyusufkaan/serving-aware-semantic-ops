@@ -90,7 +90,14 @@ Requires the NVIDIA Container Toolkit.
 
 `launch/gcp_vm_startup.sh` is a GCE startup script that reads the image, bucket and config from
 instance metadata, pulls the image from Artifact Registry, restores earlier results from GCS, runs
-the harness (on the GPU when there is one), uploads the results and shuts the VM down.
+the harness (on the GPU when there is one), uploads the results and the harness log, and deletes
+the VM. GPU VMs also get a hard `--max-run-duration`.
+
+VMs have no external IP. Run the one-time network setup first (Private Google Access and Cloud NAT):
+
+```bash
+PROJECT=<project-id> ./launch/gcp_network.sh
+```
 
 To check that path without a GPU, run this from Cloud Shell in the repository root:
 

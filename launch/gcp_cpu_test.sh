@@ -43,7 +43,7 @@ fi
 
 gcloud compute instances create "$VM" --zone="$ZONE" \
   --machine-type=e2-standard-2 --image-family=debian-12 --image-project=debian-cloud \
-  --boot-disk-size=20GB --scopes=cloud-platform \
+  --boot-disk-size=20GB --scopes=cloud-platform --no-address \
   --metadata-from-file=startup-script=launch/gcp_vm_startup.sh \
   --metadata="semops-image=$IMAGE,semops-bucket=$BUCKET,semops-config=configs/smoke.yaml"
 
