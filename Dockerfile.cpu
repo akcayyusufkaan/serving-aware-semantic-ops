@@ -1,0 +1,16 @@
+# CPU-only image with a stub vLLM, for testing the harness and the launchers without a GPU.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY harness/ harness/
+COPY configs/ configs/
+COPY tests/stub_vllm/vllm /usr/local/bin/vllm
+
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python3", "-m", "harness.runner"]
+CMD ["--config", "configs/smoke.yaml"]

@@ -1,0 +1,32 @@
+# Kubernetes Job (e.g. GKE with a GPU node pool). Requires the image, the PVCs and the hf-token secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: semops-cuad
+spec:
+  backoffLimit: 2          # retries resume from the last finished run
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: harness
+          image: <registry>/semops-harness:<tag>
+          args: ["--config", "configs/cuad.yaml"]
+          env:
+            - {name: RUN_ENV, value: k8s}
+            - name: HF_TOKEN
+              valueFrom: {secretKeyRef: {name: hf-token, key: token}}
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 28Gi       # weights of the sleeping model live in CPU memory
+          volumeMounts:
+            - {name: models, mountPath: /models}
+            - {name: results, mountPath: /results}
+            - {name: data, mountPath: /data, readOnly: true}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - {name: models, persistentVolumeClaim: {claimName: hf-cache}}
+        - {name: results, persistentVolumeClaim: {claimName: results}}
+        - {name: data, persistentVolumeClaim: {claimName: cuad-data}}
+        - {name: shm, emptyDir: {medium: Memory, sizeLimit: 8Gi}}

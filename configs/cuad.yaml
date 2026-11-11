@@ -1,0 +1,44 @@
+# Main experiment on GCP g2-standard-8 (1x L4 24 GB, 32 GB RAM).
+# Operators and prompts are placeholders until the framework (Palimpzest or LOTUS) is fixed.
+experiment: cuad-v1
+output_dir: /results
+
+workload:
+  name: cuad
+  path: /data/cuad_100.jsonl   # {"id": ..., "text": ..., "label": ...} per line
+  n_records: 100
+
+models:
+  llama: {hf_id: meta-llama/Llama-3.1-8B-Instruct, port: 8001}   # gated on Hugging Face
+  qwen:  {hf_id: Qwen/Qwen2.5-7B-Instruct, port: 8002}
+
+vllm:
+  gpu_memory_utilization: 0.85
+  max_model_len: 16384   # TODO: depends on how long contracts are truncated or chunked
+  enforce_eager: false
+  env: {}
+
+max_tokens: 256
+max_concurrency: 16
+
+plans:
+  all_llama:
+    - {op: map, name: has_clause, model: llama, prompt: "TODO: {text}"}
+    - {op: map, name: extract, model: llama, prompt: "TODO: {text}"}
+  all_qwen:
+    - {op: map, name: has_clause, model: qwen, prompt: "TODO: {text}"}
+    - {op: map, name: extract, model: qwen, prompt: "TODO: {text}"}
+  mixed:
+    - {op: map, name: has_clause, model: qwen, prompt: "TODO: {text}"}
+    - {op: map, name: extract, model: llama, prompt: "TODO: {text}"}
+  moa:
+    - {op: map, name: has_clause, model: qwen, prompt: "TODO: {text}"}
+    - op: moa
+      name: extract
+      proposers: [llama, qwen]
+      aggregator: llama
+      prompt: "TODO: {text}"
+      aggregate_prompt: "TODO: {proposals} {text}"
+
+strategies: [naive, batched]
+repeats: 3

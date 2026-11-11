@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+
+# experiment outputs and local data
+results/
+logs/
+vllm_logs/
+data/*
+!data/.gitkeep
+*.sif
+requests.jsonl
