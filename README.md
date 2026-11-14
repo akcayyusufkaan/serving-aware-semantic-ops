@@ -61,10 +61,11 @@ launch/*  ──►  container (one Docker image)
 
 | | |
 | --- | --- |
-| Workload | CUAD, 100 contracts, two operators (does the clause exist, extract it) |
+| Workload | CUAD: 25 test contracts selected as in Abacus (seed 0), split into chunks of at most 4,000 characters; the 41 clause categories are extracted by two operators (21 + 20 categories) |
 | Models | Llama-3.1-8B-Instruct, Qwen2.5-7B-Instruct on one L4 (GCP g2-standard-16, 64 GB RAM) |
 | Plans | `all_llama`, `all_qwen`, `mixed` (model per operator), `moa` (two proposers, one aggregator) |
 | Strategies | `naive`: record by record, switching models when a step needs it · `batched`: operator by operator, each model woken once |
+| Quality | Precision, recall and F1 with Abacus's span matching (Jaccard ≥ 0.15), predictions merged per contract |
 | Repeats | 3 |
 
 Single-model plans never switch models, so their `naive`/`batched` gap isolates batching and
@@ -81,11 +82,14 @@ rankings are compared with Kendall's tau and two Pareto frontiers.
 | `harness/metrics.py` | Prefix cache counters from `/metrics`, per-run deltas |
 | `harness/plans.py` | Plan execution under `naive` or `batched` |
 | `harness/workloads.py` | Workload loading and quality evaluation |
+| `harness/cuad.py` | CUAD categories, answer parsing and scoring (matches Abacus's `cuad-demo.py`) |
+| `scripts/prepare_cuad.py` | Builds the CUAD workload: contract selection, chunking, labels |
 | `harness/runner.py` | Entry point, resume and result writing |
 | `configs/smoke.yaml` | Two small models, for a 4 GB laptop GPU |
 | `configs/smoke_l4.yaml` | The same small models on an L4 |
 | `configs/smoke_8b_l4.yaml` | The same test with the two 8B models of the main experiment |
 | `configs/cuad.yaml` | Main experiment |
+| `configs/cuad_pilot.yaml` | Same plans on the first 40 chunks, one repeat, to measure throughput |
 | `launch/` | Docker (laptop); GCP network setup, VM creation, startup script and CPU test; Slurm + Apptainer (TRUBA); Kubernetes Job |
 | `cloudbuild.*.yaml` | Cloud Build jobs: image build, VM creation with retries, CPU test image |
 | `Dockerfile.cpu`, `tests/stub_vllm/` | CPU image with a stub vLLM for testing without a GPU |
@@ -132,6 +136,9 @@ PROJECT=<project-id> CONFIG=configs/smoke_8b_l4.yaml MACHINE=g2-standard-16 RETR
   ./launch/gcp_gpu_run.sh
 ```
 
+The CUAD configs read `/data/cuad_25.jsonl` and its labels; `PROJECT=<project-id> ./launch/gcp_upload_cuad.sh`
+downloads CUAD, builds them and uploads them to the bucket.
+
 - The config is uploaded to GCS, so a config change needs no image rebuild.
 - Without `SKIP_BUILD=1`, Cloud Build builds the vLLM image first; with it, the image tagged with
   the current commit (or `TAG=<tag>`) is reused.
@@ -165,7 +172,7 @@ One JSON line per run in `results/<experiment>/runs.jsonl`:
 | `n_model_switches`, `switch_time_s` | Sleep/wake count and time |
 | `usage` | Prompt, completion and cached tokens per model |
 | `prefix_cache` | Prefix cache queries and hits per server during the run |
-| `quality_f1` | Quality against labels |
+| `quality` | CUAD: precision, recall and F1 against the labels, and the number of unparsable answers |
 
 ## Status
 
@@ -174,7 +181,8 @@ One JSON line per run in `results/<experiment>/runs.jsonl`:
 - [x] GCP pipeline check on a CPU VM (`launch/gcp_cpu_test.sh`)
 - [x] Smoke tests on an L4 with 0.5B and 8B models (two servers sharing one GPU via sleep/wake)
 - [ ] Framework choice (Palimpzest or LOTUS) and the plan layer on top of it
-- [ ] CUAD subset, prompts and F1
+- [x] CUAD subset, chunking, prompts and F1 (tested against the stub; F1 scoring identical to Abacus's on 3,000 random cases)
+- [ ] CUAD pilot on the L4
 - [ ] CUAD runs on GCP and analysis
 
 ## References

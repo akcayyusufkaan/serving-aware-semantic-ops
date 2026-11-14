@@ -1,44 +1,307 @@
-# Main experiment on GCP g2-standard-8 (1x L4 24 GB, 32 GB RAM).
-# Operators and prompts are placeholders until the framework (Palimpzest or LOTUS) is fixed.
-experiment: cuad-v1
+# CUAD on one L4 (g2-standard-16, 64 GB RAM): 25 contracts selected as in Abacus (seed 0), split
+# into chunks of at most 4000 characters (scripts/prepare_cuad.py). The 41 CUAD categories are
+# extracted by two operators (21 + 20 categories); F1 follows Abacus's scoring (harness/cuad.py).
+# gpu_memory_utilization 0.85 leaves room for the sleeping 8B server; max_model_len covers the
+# longest prompt (instructions + 4000-character chunk) plus max_tokens.
+experiment: cuad-25
 output_dir: /results
-
 workload:
   name: cuad
-  path: /data/cuad_100.jsonl   # {"id": ..., "text": ..., "label": ...} per line
-  n_records: 100
-
+  path: /data/cuad_25.jsonl
+  labels: /data/cuad_25_labels.json
 models:
-  llama: {hf_id: meta-llama/Llama-3.1-8B-Instruct, port: 8001}   # gated on Hugging Face
-  qwen:  {hf_id: Qwen/Qwen2.5-7B-Instruct, port: 8002}
-
+  llama:
+    hf_id: meta-llama/Llama-3.1-8B-Instruct
+    port: 8001
+  qwen:
+    hf_id: Qwen/Qwen2.5-7B-Instruct
+    port: 8002
 vllm:
   gpu_memory_utilization: 0.85
-  max_model_len: 16384   # TODO: depends on how long contracts are truncated or chunked
+  max_model_len: 4096
   enforce_eager: false
   env: {}
-
-max_tokens: 256
+max_tokens: 768
 max_concurrency: 16
-
 plans:
   all_llama:
-    - {op: map, name: has_clause, model: llama, prompt: "TODO: {text}"}
-    - {op: map, name: extract, model: llama, prompt: "TODO: {text}"}
-  all_qwen:
-    - {op: map, name: has_clause, model: qwen, prompt: "TODO: {text}"}
-    - {op: map, name: extract, model: qwen, prompt: "TODO: {text}"}
-  mixed:
-    - {op: map, name: has_clause, model: qwen, prompt: "TODO: {text}"}
-    - {op: map, name: extract, model: llama, prompt: "TODO: {text}"}
-  moa:
-    - {op: map, name: has_clause, model: qwen, prompt: "TODO: {text}"}
-    - op: moa
-      name: extract
-      proposers: [llama, qwen]
-      aggregator: llama
-      prompt: "TODO: {text}"
-      aggregate_prompt: "TODO: {proposals} {text}"
+  - op: map
+    name: extract_a
+    model: llama
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
 
-strategies: [naive, batched]
+      Categories:
+      - Document Name: The name of the contract
+      - Parties: The two or more parties who signed the contract
+      - Agreement Date: The date of the contract
+      - Effective Date: The date when the contract is effective
+      - Expiration Date: On what date will the contract's initial term expire?
+      - Renewal Term: What is the renewal term after the initial term expires? This includes automatic extensions and unilateral extensions with prior notice.
+      - Notice Period to Terminate Renewal: What is the notice period required to terminate renewal?
+      - Governing Law: Which state/country's law governs the interpretation of the contract?
+      - Most Favored Nation: Is there a clause that if a third party gets better terms on the licensing or sale of technology/goods/services described in the contract, the buyer of such technology/goods/services under the contract shall be entitled to those better terms?
+      - Non-Compete: Is there a restriction on the ability of a party to compete with the counterparty or operate in a certain geography or business or technology sector?
+      - Exclusivity: Is there an exclusive dealing  commitment with the counterparty? This includes a commitment to procure all “requirements” from one party of certain technology, goods, or services or a prohibition on licensing or selling technology, goods or services to third parties, or a prohibition on  collaborating or working with other parties), whether during the contract or  after the contract ends (or both).
+      - No-Solicit of Customers: Is a party restricted from contracting or soliciting customers or partners of the counterparty, whether during the contract or after the contract ends (or both)?
+      - Competitive Restriction Exception: This category includes the exceptions or carveouts to Non-Compete, Exclusivity and No-Solicit of Customers above.
+      - No-Solicit of Employees: Is there a restriction on a party’s soliciting or hiring employees and/or contractors from the  counterparty, whether during the contract or after the contract ends (or both)?
+      - Non-Disparagement: Is there a requirement on a party not to disparage the counterparty?
+      - Termination for Convenience: Can a party terminate this  contract without cause (solely by giving a notice and allowing a waiting  period to expire)?
+      - Rofr/Rofo/Rofn: Is there a clause granting one party a right of first refusal, right of first offer or right of first negotiation to purchase, license, market, or distribute equity interest, technology, assets, products or services?
+      - Change of Control: Does one party have the right to terminate or is consent or notice required of the counterparty if such party undergoes a change of control, such as a merger, stock sale, transfer of all or substantially all of its assets or business, or assignment by operation of law?
+      - Anti-Assignment: Is consent or notice required of a party if the contract is assigned to a third party?
+      - Revenue/Profit Sharing: Is one party required to share revenue or profit with the counterparty for any technology, goods, or services?
+      - Price Restrictions: Is there a restriction on the  ability of a party to raise or reduce prices of technology, goods, or  services provided?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  - op: map
+    name: extract_b
+    model: llama
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Minimum Commitment: Is there a minimum order size or minimum amount or units per-time period that one party must buy from the counterparty under the contract?
+      - Volume Restriction: Is there a fee increase or consent requirement, etc. if one party’s use of the product/services exceeds certain threshold?
+      - IP Ownership Assignment: Does intellectual property created  by one party become the property of the counterparty, either per the terms of the contract or upon the occurrence of certain events?
+      - Joint IP Ownership: Is there any clause providing for joint or shared ownership of intellectual property between the parties to the contract?
+      - License Grant: Does the contract contain a license granted by one party to its counterparty?
+      - Non-Transferable License: Does the contract limit the ability of a party to transfer the license being granted to a third party?
+      - Affiliate License-Licensor: Does the contract contain a license grant by affiliates of the licensor or that includes intellectual property of affiliates of the licensor?
+      - Affiliate License-Licensee: Does the contract contain a license grant to a licensee (incl. sublicensor) and the affiliates of such licensee/sublicensor?
+      - Unlimited/All-You-Can-Eat-License: Is there a clause granting one party an “enterprise,” “all you can eat” or unlimited usage license?
+      - Irrevocable or Perpetual License: Does the contract contain a  license grant that is irrevocable or perpetual?
+      - Source Code Escrow: Is one party required to deposit its source code into escrow with a third party, which can be released to the counterparty upon the occurrence of certain events (bankruptcy,  insolvency, etc.)?
+      - Post-Termination Services: Is a party subject to obligations after the termination or expiration of a contract, including any post-termination transition, payment, transfer of IP, wind-down, last-buy, or similar commitments?
+      - Audit Rights: Does a party have the right to  audit the books, records, or physical locations of the counterparty to ensure compliance with the contract?
+      - Uncapped Liability: Is a party’s liability uncapped upon the breach of its obligation in the contract? This also includes uncap liability for a particular type of breach such as IP infringement or breach of confidentiality obligation.
+      - Cap on Liability: Does the contract include a cap on liability upon the breach of a party’s obligation? This includes time limitation for the counterparty to bring claims or maximum amount for recovery.
+      - Liquidated Damages: Does the contract contain a clause that would award either party liquidated damages for breach or a fee upon the termination of a contract (termination fee)?
+      - Warranty Duration: What is the duration of any  warranty against defects or errors in technology, products, or services  provided under the contract?
+      - Insurance: Is there a requirement for insurance that must be maintained by one party for the benefit of the counterparty?
+      - Covenant Not to Sue: Is a party restricted from contesting the validity of the counterparty’s ownership of intellectual property or otherwise bringing a claim against the counterparty for matters unrelated to the contract?
+      - Third Party Beneficiary: Is there a non-contracting party who is a beneficiary to some or all of the clauses in the contract and therefore can enforce its rights against a contracting party?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  all_qwen:
+  - op: map
+    name: extract_a
+    model: qwen
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Document Name: The name of the contract
+      - Parties: The two or more parties who signed the contract
+      - Agreement Date: The date of the contract
+      - Effective Date: The date when the contract is effective
+      - Expiration Date: On what date will the contract's initial term expire?
+      - Renewal Term: What is the renewal term after the initial term expires? This includes automatic extensions and unilateral extensions with prior notice.
+      - Notice Period to Terminate Renewal: What is the notice period required to terminate renewal?
+      - Governing Law: Which state/country's law governs the interpretation of the contract?
+      - Most Favored Nation: Is there a clause that if a third party gets better terms on the licensing or sale of technology/goods/services described in the contract, the buyer of such technology/goods/services under the contract shall be entitled to those better terms?
+      - Non-Compete: Is there a restriction on the ability of a party to compete with the counterparty or operate in a certain geography or business or technology sector?
+      - Exclusivity: Is there an exclusive dealing  commitment with the counterparty? This includes a commitment to procure all “requirements” from one party of certain technology, goods, or services or a prohibition on licensing or selling technology, goods or services to third parties, or a prohibition on  collaborating or working with other parties), whether during the contract or  after the contract ends (or both).
+      - No-Solicit of Customers: Is a party restricted from contracting or soliciting customers or partners of the counterparty, whether during the contract or after the contract ends (or both)?
+      - Competitive Restriction Exception: This category includes the exceptions or carveouts to Non-Compete, Exclusivity and No-Solicit of Customers above.
+      - No-Solicit of Employees: Is there a restriction on a party’s soliciting or hiring employees and/or contractors from the  counterparty, whether during the contract or after the contract ends (or both)?
+      - Non-Disparagement: Is there a requirement on a party not to disparage the counterparty?
+      - Termination for Convenience: Can a party terminate this  contract without cause (solely by giving a notice and allowing a waiting  period to expire)?
+      - Rofr/Rofo/Rofn: Is there a clause granting one party a right of first refusal, right of first offer or right of first negotiation to purchase, license, market, or distribute equity interest, technology, assets, products or services?
+      - Change of Control: Does one party have the right to terminate or is consent or notice required of the counterparty if such party undergoes a change of control, such as a merger, stock sale, transfer of all or substantially all of its assets or business, or assignment by operation of law?
+      - Anti-Assignment: Is consent or notice required of a party if the contract is assigned to a third party?
+      - Revenue/Profit Sharing: Is one party required to share revenue or profit with the counterparty for any technology, goods, or services?
+      - Price Restrictions: Is there a restriction on the  ability of a party to raise or reduce prices of technology, goods, or  services provided?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  - op: map
+    name: extract_b
+    model: qwen
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Minimum Commitment: Is there a minimum order size or minimum amount or units per-time period that one party must buy from the counterparty under the contract?
+      - Volume Restriction: Is there a fee increase or consent requirement, etc. if one party’s use of the product/services exceeds certain threshold?
+      - IP Ownership Assignment: Does intellectual property created  by one party become the property of the counterparty, either per the terms of the contract or upon the occurrence of certain events?
+      - Joint IP Ownership: Is there any clause providing for joint or shared ownership of intellectual property between the parties to the contract?
+      - License Grant: Does the contract contain a license granted by one party to its counterparty?
+      - Non-Transferable License: Does the contract limit the ability of a party to transfer the license being granted to a third party?
+      - Affiliate License-Licensor: Does the contract contain a license grant by affiliates of the licensor or that includes intellectual property of affiliates of the licensor?
+      - Affiliate License-Licensee: Does the contract contain a license grant to a licensee (incl. sublicensor) and the affiliates of such licensee/sublicensor?
+      - Unlimited/All-You-Can-Eat-License: Is there a clause granting one party an “enterprise,” “all you can eat” or unlimited usage license?
+      - Irrevocable or Perpetual License: Does the contract contain a  license grant that is irrevocable or perpetual?
+      - Source Code Escrow: Is one party required to deposit its source code into escrow with a third party, which can be released to the counterparty upon the occurrence of certain events (bankruptcy,  insolvency, etc.)?
+      - Post-Termination Services: Is a party subject to obligations after the termination or expiration of a contract, including any post-termination transition, payment, transfer of IP, wind-down, last-buy, or similar commitments?
+      - Audit Rights: Does a party have the right to  audit the books, records, or physical locations of the counterparty to ensure compliance with the contract?
+      - Uncapped Liability: Is a party’s liability uncapped upon the breach of its obligation in the contract? This also includes uncap liability for a particular type of breach such as IP infringement or breach of confidentiality obligation.
+      - Cap on Liability: Does the contract include a cap on liability upon the breach of a party’s obligation? This includes time limitation for the counterparty to bring claims or maximum amount for recovery.
+      - Liquidated Damages: Does the contract contain a clause that would award either party liquidated damages for breach or a fee upon the termination of a contract (termination fee)?
+      - Warranty Duration: What is the duration of any  warranty against defects or errors in technology, products, or services  provided under the contract?
+      - Insurance: Is there a requirement for insurance that must be maintained by one party for the benefit of the counterparty?
+      - Covenant Not to Sue: Is a party restricted from contesting the validity of the counterparty’s ownership of intellectual property or otherwise bringing a claim against the counterparty for matters unrelated to the contract?
+      - Third Party Beneficiary: Is there a non-contracting party who is a beneficiary to some or all of the clauses in the contract and therefore can enforce its rights against a contracting party?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  mixed:
+  - op: map
+    name: extract_a
+    model: qwen
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Document Name: The name of the contract
+      - Parties: The two or more parties who signed the contract
+      - Agreement Date: The date of the contract
+      - Effective Date: The date when the contract is effective
+      - Expiration Date: On what date will the contract's initial term expire?
+      - Renewal Term: What is the renewal term after the initial term expires? This includes automatic extensions and unilateral extensions with prior notice.
+      - Notice Period to Terminate Renewal: What is the notice period required to terminate renewal?
+      - Governing Law: Which state/country's law governs the interpretation of the contract?
+      - Most Favored Nation: Is there a clause that if a third party gets better terms on the licensing or sale of technology/goods/services described in the contract, the buyer of such technology/goods/services under the contract shall be entitled to those better terms?
+      - Non-Compete: Is there a restriction on the ability of a party to compete with the counterparty or operate in a certain geography or business or technology sector?
+      - Exclusivity: Is there an exclusive dealing  commitment with the counterparty? This includes a commitment to procure all “requirements” from one party of certain technology, goods, or services or a prohibition on licensing or selling technology, goods or services to third parties, or a prohibition on  collaborating or working with other parties), whether during the contract or  after the contract ends (or both).
+      - No-Solicit of Customers: Is a party restricted from contracting or soliciting customers or partners of the counterparty, whether during the contract or after the contract ends (or both)?
+      - Competitive Restriction Exception: This category includes the exceptions or carveouts to Non-Compete, Exclusivity and No-Solicit of Customers above.
+      - No-Solicit of Employees: Is there a restriction on a party’s soliciting or hiring employees and/or contractors from the  counterparty, whether during the contract or after the contract ends (or both)?
+      - Non-Disparagement: Is there a requirement on a party not to disparage the counterparty?
+      - Termination for Convenience: Can a party terminate this  contract without cause (solely by giving a notice and allowing a waiting  period to expire)?
+      - Rofr/Rofo/Rofn: Is there a clause granting one party a right of first refusal, right of first offer or right of first negotiation to purchase, license, market, or distribute equity interest, technology, assets, products or services?
+      - Change of Control: Does one party have the right to terminate or is consent or notice required of the counterparty if such party undergoes a change of control, such as a merger, stock sale, transfer of all or substantially all of its assets or business, or assignment by operation of law?
+      - Anti-Assignment: Is consent or notice required of a party if the contract is assigned to a third party?
+      - Revenue/Profit Sharing: Is one party required to share revenue or profit with the counterparty for any technology, goods, or services?
+      - Price Restrictions: Is there a restriction on the  ability of a party to raise or reduce prices of technology, goods, or  services provided?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  - op: map
+    name: extract_b
+    model: llama
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Minimum Commitment: Is there a minimum order size or minimum amount or units per-time period that one party must buy from the counterparty under the contract?
+      - Volume Restriction: Is there a fee increase or consent requirement, etc. if one party’s use of the product/services exceeds certain threshold?
+      - IP Ownership Assignment: Does intellectual property created  by one party become the property of the counterparty, either per the terms of the contract or upon the occurrence of certain events?
+      - Joint IP Ownership: Is there any clause providing for joint or shared ownership of intellectual property between the parties to the contract?
+      - License Grant: Does the contract contain a license granted by one party to its counterparty?
+      - Non-Transferable License: Does the contract limit the ability of a party to transfer the license being granted to a third party?
+      - Affiliate License-Licensor: Does the contract contain a license grant by affiliates of the licensor or that includes intellectual property of affiliates of the licensor?
+      - Affiliate License-Licensee: Does the contract contain a license grant to a licensee (incl. sublicensor) and the affiliates of such licensee/sublicensor?
+      - Unlimited/All-You-Can-Eat-License: Is there a clause granting one party an “enterprise,” “all you can eat” or unlimited usage license?
+      - Irrevocable or Perpetual License: Does the contract contain a  license grant that is irrevocable or perpetual?
+      - Source Code Escrow: Is one party required to deposit its source code into escrow with a third party, which can be released to the counterparty upon the occurrence of certain events (bankruptcy,  insolvency, etc.)?
+      - Post-Termination Services: Is a party subject to obligations after the termination or expiration of a contract, including any post-termination transition, payment, transfer of IP, wind-down, last-buy, or similar commitments?
+      - Audit Rights: Does a party have the right to  audit the books, records, or physical locations of the counterparty to ensure compliance with the contract?
+      - Uncapped Liability: Is a party’s liability uncapped upon the breach of its obligation in the contract? This also includes uncap liability for a particular type of breach such as IP infringement or breach of confidentiality obligation.
+      - Cap on Liability: Does the contract include a cap on liability upon the breach of a party’s obligation? This includes time limitation for the counterparty to bring claims or maximum amount for recovery.
+      - Liquidated Damages: Does the contract contain a clause that would award either party liquidated damages for breach or a fee upon the termination of a contract (termination fee)?
+      - Warranty Duration: What is the duration of any  warranty against defects or errors in technology, products, or services  provided under the contract?
+      - Insurance: Is there a requirement for insurance that must be maintained by one party for the benefit of the counterparty?
+      - Covenant Not to Sue: Is a party restricted from contesting the validity of the counterparty’s ownership of intellectual property or otherwise bringing a claim against the counterparty for matters unrelated to the contract?
+      - Third Party Beneficiary: Is there a non-contracting party who is a beneficiary to some or all of the clauses in the contract and therefore can enforce its rights against a contracting party?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  moa:
+  - op: map
+    name: extract_a
+    model: qwen
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Document Name: The name of the contract
+      - Parties: The two or more parties who signed the contract
+      - Agreement Date: The date of the contract
+      - Effective Date: The date when the contract is effective
+      - Expiration Date: On what date will the contract's initial term expire?
+      - Renewal Term: What is the renewal term after the initial term expires? This includes automatic extensions and unilateral extensions with prior notice.
+      - Notice Period to Terminate Renewal: What is the notice period required to terminate renewal?
+      - Governing Law: Which state/country's law governs the interpretation of the contract?
+      - Most Favored Nation: Is there a clause that if a third party gets better terms on the licensing or sale of technology/goods/services described in the contract, the buyer of such technology/goods/services under the contract shall be entitled to those better terms?
+      - Non-Compete: Is there a restriction on the ability of a party to compete with the counterparty or operate in a certain geography or business or technology sector?
+      - Exclusivity: Is there an exclusive dealing  commitment with the counterparty? This includes a commitment to procure all “requirements” from one party of certain technology, goods, or services or a prohibition on licensing or selling technology, goods or services to third parties, or a prohibition on  collaborating or working with other parties), whether during the contract or  after the contract ends (or both).
+      - No-Solicit of Customers: Is a party restricted from contracting or soliciting customers or partners of the counterparty, whether during the contract or after the contract ends (or both)?
+      - Competitive Restriction Exception: This category includes the exceptions or carveouts to Non-Compete, Exclusivity and No-Solicit of Customers above.
+      - No-Solicit of Employees: Is there a restriction on a party’s soliciting or hiring employees and/or contractors from the  counterparty, whether during the contract or after the contract ends (or both)?
+      - Non-Disparagement: Is there a requirement on a party not to disparage the counterparty?
+      - Termination for Convenience: Can a party terminate this  contract without cause (solely by giving a notice and allowing a waiting  period to expire)?
+      - Rofr/Rofo/Rofn: Is there a clause granting one party a right of first refusal, right of first offer or right of first negotiation to purchase, license, market, or distribute equity interest, technology, assets, products or services?
+      - Change of Control: Does one party have the right to terminate or is consent or notice required of the counterparty if such party undergoes a change of control, such as a merger, stock sale, transfer of all or substantially all of its assets or business, or assignment by operation of law?
+      - Anti-Assignment: Is consent or notice required of a party if the contract is assigned to a third party?
+      - Revenue/Profit Sharing: Is one party required to share revenue or profit with the counterparty for any technology, goods, or services?
+      - Price Restrictions: Is there a restriction on the  ability of a party to raise or reduce prices of technology, goods, or  services provided?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+  - op: moa
+    name: extract_b
+    proposers:
+    - llama
+    - qwen
+    aggregator: llama
+    prompt: |
+      You are reviewing an excerpt of a legal contract. For each category below, quote verbatim every span of the excerpt that belongs to it. Use an empty list when there is none. Do not summarize or paraphrase.
+
+      Categories:
+      - Minimum Commitment: Is there a minimum order size or minimum amount or units per-time period that one party must buy from the counterparty under the contract?
+      - Volume Restriction: Is there a fee increase or consent requirement, etc. if one party’s use of the product/services exceeds certain threshold?
+      - IP Ownership Assignment: Does intellectual property created  by one party become the property of the counterparty, either per the terms of the contract or upon the occurrence of certain events?
+      - Joint IP Ownership: Is there any clause providing for joint or shared ownership of intellectual property between the parties to the contract?
+      - License Grant: Does the contract contain a license granted by one party to its counterparty?
+      - Non-Transferable License: Does the contract limit the ability of a party to transfer the license being granted to a third party?
+      - Affiliate License-Licensor: Does the contract contain a license grant by affiliates of the licensor or that includes intellectual property of affiliates of the licensor?
+      - Affiliate License-Licensee: Does the contract contain a license grant to a licensee (incl. sublicensor) and the affiliates of such licensee/sublicensor?
+      - Unlimited/All-You-Can-Eat-License: Is there a clause granting one party an “enterprise,” “all you can eat” or unlimited usage license?
+      - Irrevocable or Perpetual License: Does the contract contain a  license grant that is irrevocable or perpetual?
+      - Source Code Escrow: Is one party required to deposit its source code into escrow with a third party, which can be released to the counterparty upon the occurrence of certain events (bankruptcy,  insolvency, etc.)?
+      - Post-Termination Services: Is a party subject to obligations after the termination or expiration of a contract, including any post-termination transition, payment, transfer of IP, wind-down, last-buy, or similar commitments?
+      - Audit Rights: Does a party have the right to  audit the books, records, or physical locations of the counterparty to ensure compliance with the contract?
+      - Uncapped Liability: Is a party’s liability uncapped upon the breach of its obligation in the contract? This also includes uncap liability for a particular type of breach such as IP infringement or breach of confidentiality obligation.
+      - Cap on Liability: Does the contract include a cap on liability upon the breach of a party’s obligation? This includes time limitation for the counterparty to bring claims or maximum amount for recovery.
+      - Liquidated Damages: Does the contract contain a clause that would award either party liquidated damages for breach or a fee upon the termination of a contract (termination fee)?
+      - Warranty Duration: What is the duration of any  warranty against defects or errors in technology, products, or services  provided under the contract?
+      - Insurance: Is there a requirement for insurance that must be maintained by one party for the benefit of the counterparty?
+      - Covenant Not to Sue: Is a party restricted from contesting the validity of the counterparty’s ownership of intellectual property or otherwise bringing a claim against the counterparty for matters unrelated to the contract?
+      - Third Party Beneficiary: Is there a non-contracting party who is a beneficiary to some or all of the clauses in the contract and therefore can enforce its rights against a contracting party?
+
+      Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+
+      Excerpt:
+      {text}
+    aggregate_prompt: |
+      Two assistants extracted spans for these contract categories: Minimum Commitment, Volume Restriction, IP Ownership Assignment, Joint IP Ownership, License Grant, Non-Transferable License, Affiliate License-Licensor, Affiliate License-Licensee, Unlimited/All-You-Can-Eat-License, Irrevocable or Perpetual License, Source Code Escrow, Post-Termination Services, Audit Rights, Uncapped Liability, Cap on Liability, Liquidated Damages, Warranty Duration, Insurance, Covenant Not to Sue, Third Party Beneficiary.
+
+      Their answers:
+      {proposals}
+
+      Excerpt:
+      {text}
+
+      Combine them into one answer: keep spans that are quoted verbatim from the excerpt and belong to the category, drop the rest. Answer with one JSON object whose keys are exactly the category names above and whose values are lists of strings. Output nothing else.
+strategies:
+- naive
+- batched
 repeats: 3

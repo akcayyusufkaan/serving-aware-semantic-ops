@@ -14,7 +14,7 @@ BUCKET=${BUCKET:-${PROJECT}-semops}
 REPO=${REPO:-semops}
 VM=${VM:-semops-l4}
 CONFIG=${CONFIG:-configs/smoke_l4.yaml}
-MACHINE=${MACHINE:-g2-standard-12}
+MACHINE=${MACHINE:-g2-standard-16}
 MAX_RUN=${MAX_RUN:-3h}
 TAG=${TAG:-$(git rev-parse --short HEAD)}
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/semops-harness:${TAG}"
@@ -48,8 +48,10 @@ elif [ "${SKIP_BUILD:-0}" = "1" ]; then
   IMAGE="$IMAGE" BUCKET="$BUCKET" CONFIG="$CONFIG_URL" VM="$VM" ZONES="$ZONES" \
     MAX_RUN="$MAX_RUN" SPOT_ARGS="$SPOT_ARGS" MACHINE="$MACHINE" bash launch/gcp_create_vm.sh
 else
+  # With RETRY=1 the VM step keeps trying zones for up to an hour after the build.
+  ROUNDS=1; [ "${RETRY:-0}" = "1" ] && ROUNDS=6
   gcloud builds submit --async --region="$REGION" --config=cloudbuild.gpu.yaml \
-    --substitutions="^;^_IMAGE=$IMAGE;_BUCKET=$BUCKET;_CONFIG=$CONFIG_URL;_VM=$VM;_ZONES=$ZONES;_SPOT_ARGS=$SPOT_ARGS;_MAX_RUN=$MAX_RUN" .
+    --substitutions="^;^_IMAGE=$IMAGE;_BUCKET=$BUCKET;_CONFIG=$CONFIG_URL;_VM=$VM;_ZONES=$ZONES;_SPOT_ARGS=$SPOT_ARGS;_MAX_RUN=$MAX_RUN;_MACHINE=$MACHINE;_ROUNDS=$ROUNDS" .
   echo "Build submitted; you can close Cloud Shell. Build status: gcloud builds list --region=$REGION --limit=1"
 fi
 

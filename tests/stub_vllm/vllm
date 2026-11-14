@@ -32,7 +32,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
-        self.rfile.read(length)
+        body = self.rfile.read(length)
         if self.path.startswith("/sleep"):
             state["asleep"] = True
             return self._send(b"ok")
@@ -45,8 +45,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(b"server is asleep", status=409)
         state["queries"] += 100
         state["hits"] += 50
+        content = "ok"
+        prompt = json.loads(body)["messages"][0]["content"] if body else ""
+        if "Excerpt:" in prompt:
+            # Quote the first line of the excerpt as the document name, so CUAD scoring has something to match.
+            excerpt = prompt.split("Excerpt:", 1)[1].strip().split("\n")[0]
+            content = json.dumps({"Document Name": [excerpt]})
         self._send(json.dumps({
-            "choices": [{"message": {"content": "ok"}}],
+            "choices": [{"message": {"content": content}}],
             "usage": {"prompt_tokens": 100, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 50}},
         }).encode(), content_type="application/json")
 

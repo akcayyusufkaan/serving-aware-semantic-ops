@@ -17,7 +17,7 @@ steps:
       - WAIT=600
 substitutions:
   _ROUNDS: "18"
-  _MACHINE: g2-standard-12
+  _MACHINE: g2-standard-16
 timeout: 12000s
 options:
   substitutionOption: ALLOW_LOOSE

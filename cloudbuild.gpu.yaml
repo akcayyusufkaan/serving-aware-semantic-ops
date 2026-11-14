@@ -16,13 +16,19 @@ steps:
       - ZONES=$_ZONES
       - MAX_RUN=$_MAX_RUN
       - SPOT_ARGS=$_SPOT_ARGS
+      - MACHINE=$_MACHINE
+      - ROUNDS=$_ROUNDS
+      - WAIT=600
 substitutions:
   _VM: semops-l4
   _ZONES: us-central1-a us-central1-b us-central1-c europe-west4-a europe-west4-b europe-west4-c
   _CONFIG: configs/smoke_l4.yaml
   _SPOT_ARGS: ""
   _MAX_RUN: 3h
-timeout: 3600s
+  _MACHINE: g2-standard-16
+  _ROUNDS: "1"
+timeout: 7200s
 options:
+  substitutionOption: ALLOW_LOOSE
   machineType: E2_HIGHCPU_8
   diskSizeGb: 200

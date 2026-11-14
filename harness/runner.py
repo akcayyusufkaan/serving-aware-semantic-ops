@@ -101,7 +101,7 @@ def main():
                 "switch_time_s": pool.switch_time_s,
                 "usage": usage,
                 "prefix_cache": {n: metrics.delta(before[n], after[n]) for n in cfg["models"]},
-                "quality_f1": workloads.evaluate(cfg["workload"], records, states, ops[-1]["name"]),
+                "quality": workloads.evaluate(cfg["workload"], records, states, [op["name"] for op in ops]),
                 "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             with open(results_path, "a") as f:

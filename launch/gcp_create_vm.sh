@@ -5,9 +5,8 @@
 # Each zone's region needs Private Google Access and Cloud NAT (launch/gcp_network.sh).
 set -uo pipefail
 ROUNDS=${ROUNDS:-1}
-# 48 GB RAM: switching between two 8B models briefly holds both models' weights in CPU memory
-# (~15 GB each), which does not fit next to everything else on a 32 GB g2-standard-8.
-MACHINE=${MACHINE:-g2-standard-12}
+# Two 8B models failed on 32 and 48 GB of host RAM when switching and work on 64 GB.
+MACHINE=${MACHINE:-g2-standard-16}
 WAIT=${WAIT:-600}
 for ROUND in $(seq 1 "$ROUNDS"); do
 for Z in $ZONES; do
