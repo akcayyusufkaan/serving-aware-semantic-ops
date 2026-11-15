@@ -304,4 +304,4 @@ plans:
 strategies:
 - naive
 - batched
-repeats: 3
+repeats: 1   # the pilot took 2.0 h for 40 chunks; 160 chunks x 3 repeats would be ~24 h
