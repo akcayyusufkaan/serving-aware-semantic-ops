@@ -10,8 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Palimpzest gets its own environment: its pinned dependencies (numpy, litellm) must not change
 # vLLM's. It reuses the image's torch through the system site-packages.
+COPY pz-constraints.txt .
 RUN python3 -m venv --system-site-packages /opt/pz \
-    && /opt/pz/bin/pip install --no-cache-dir palimpzest==1.5.3
+    && /opt/pz/bin/pip install --no-cache-dir -c pz-constraints.txt palimpzest==1.5.3
 
 COPY harness/ harness/
 COPY configs/ configs/
