@@ -3,7 +3,9 @@
 # validator), picks a plan for each policy at API prices, and runs it on the 25 test contracts
 # (160 chunks). The harness measures what that plan costs on the GPU (time, model switches).
 # max_model_len is larger than in cuad.yaml: Palimpzest's prompts list all 41 categories, and the
-# mixture-of-agents aggregator also receives the proposals (stub run: up to ~20k characters).
+# mixture-of-agents aggregator also receives the proposals (stub run: up to ~20k characters, roughly
+# 5k tokens before real proposals are added). At utilization 0.85 Llama has 1.1 GiB of KV cache,
+# which vLLM reports as enough for a maximum length of 9024 tokens (L4 run, 2026-11-15).
 experiment: cuad-25-pz
 output_dir: /results
 models:
@@ -15,7 +17,7 @@ models:
     port: 8002
 vllm:
   gpu_memory_utilization: 0.85
-  max_model_len: 10240
+  max_model_len: 8192
   enforce_eager: false
   env: {}
 repeats: 1
