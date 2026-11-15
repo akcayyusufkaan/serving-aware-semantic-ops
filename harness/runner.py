@@ -57,6 +57,11 @@ def main():
     with open(os.path.join(out_dir, "env.json"), "w") as f:
         json.dump(env, f, indent=2)
 
+    if "palimpzest" in cfg:
+        from . import pz_runner
+        pz_runner.run(cfg, out_dir, env)
+        return
+
     results_path = os.path.join(out_dir, "runs.jsonl")
     done = done_ids(results_path)
     todo = [r for r in run_matrix(cfg) if r.run_id not in done]

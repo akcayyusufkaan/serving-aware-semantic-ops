@@ -9,6 +9,8 @@ N=${N:-25}
 TMP=$(mktemp -d)
 curl -sSL -o "$TMP/data.zip" https://github.com/TheAtticusProject/cuad/raw/main/data.zip
 unzip -q -o "$TMP/data.zip" -d "$TMP"
-python3 scripts/prepare_cuad.py --cuad-test "$TMP/test.json" --n "$N" --out-dir data
-gcloud storage cp "data/cuad_${N}.jsonl" "data/cuad_${N}_labels.json" "gs://${BUCKET}/data/"
+python3 scripts/prepare_cuad.py --cuad-json "$TMP/test.json" --n "$N" --out-dir data
+python3 scripts/prepare_cuad.py --cuad-json "$TMP/train_separate_questions.json" --split train --n 25 --out-dir data
+gcloud storage cp "data/cuad_${N}.jsonl" "data/cuad_${N}_labels.json" \
+  data/cuad_train_25.jsonl data/cuad_train_25_labels.json "gs://${BUCKET}/data/"
 rm -rf "$TMP"

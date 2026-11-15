@@ -17,6 +17,7 @@ class ServerPool:
         self.awake = None
         self.n_switches = 0
         self.switch_time_s = 0.0
+        self.switch_log = []   # (wall-clock start, duration) of each switch
 
     def url(self, name):
         return f'http://127.0.0.1:{self.cfg["models"][name]["port"]}'
@@ -72,11 +73,13 @@ class ServerPool:
         """Wake `name`, putting the currently awake server to sleep first. Timed as a model switch."""
         if self.awake == name:
             return
-        t0 = time.perf_counter()
+        started, t0 = time.time(), time.perf_counter()
         if self.awake is not None:
             self._post(self.awake, "/sleep?level=1")
         self._post(name, "/wake_up")
-        self.switch_time_s += time.perf_counter() - t0
+        took = time.perf_counter() - t0
+        self.switch_time_s += took
+        self.switch_log.append((started, took))
         self.n_switches += 1
         self.awake = name
 
@@ -87,6 +90,7 @@ class ServerPool:
     def reset_counters(self):
         self.n_switches = 0
         self.switch_time_s = 0.0
+        self.switch_log = []
 
     def stop_all(self):
         for p in self.procs.values():

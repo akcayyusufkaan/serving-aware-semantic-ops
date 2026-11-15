@@ -5,8 +5,17 @@ Implements /health, /metrics, /sleep, /wake_up, /reset_prefix_cache and /v1/chat
 and fails any completion request sent to a sleeping server.
 """
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# Category names for Palimpzest-format answers: from the repository, or from the working
+# directory when the stub is installed elsewhere (Dockerfile.cpu copies it to /usr/local/bin).
+sys.path[:0] = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."), os.getcwd()]
+try:
+    from harness.cuad import NAMES
+except ImportError:
+    NAMES = ["Document Name"]
 
 port = int(sys.argv[sys.argv.index("--port") + 1])
 state = {"queries": 0, "hits": 0, "asleep": False}
@@ -43,18 +52,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(b"ok")
         if state["asleep"]:
             return self._send(b"server is asleep", status=409)
+        if os.environ.get("STUB_LOG"):
+            with open(os.environ["STUB_LOG"], "a") as f:
+                f.write(json.dumps({"port": port, "chars": len(body)}) + "\n")
         state["queries"] += 100
         state["hits"] += 50
         content = "ok"
-        prompt = json.loads(body)["messages"][0]["content"] if body else ""
+        messages = json.loads(body)["messages"] if body else []
+        prompt = messages[0]["content"] if messages and isinstance(messages[0].get("content"), str) else ""
         if "Excerpt:" in prompt:
             # Quote the first line of the excerpt as the document name, so CUAD scoring has something to match.
             excerpt = prompt.split("Excerpt:", 1)[1].strip().split("\n")[0]
             content = json.dumps({"Document Name": [excerpt]})
+        elif "ANSWER" in json.dumps(messages):
+            # Palimpzest's answer format.
+            answer = {name: [] for name in NAMES}
+            answer["Document Name"] = ["stub"]
+            content = f"REASONING: stub\nANSWER:\n```json\n{json.dumps(answer)}\n```\n---"
+
         self._send(json.dumps({
-            "choices": [{"message": {"content": content}}],
+            "id": "stub", "object": "chat.completion", "created": 0, "model": (json.loads(body) if body else {}).get("model", "stub"),
+            "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": content}}],
             "usage": {"prompt_tokens": 100, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 50}},
         }).encode(), content_type="application/json")
 
 
+ThreadingHTTPServer.request_queue_size = 256
 ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

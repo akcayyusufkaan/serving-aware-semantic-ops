@@ -85,14 +85,19 @@ rankings are compared with Kendall's tau and two Pareto frontiers.
 | `harness/cuad.py` | CUAD categories, answer parsing and scoring (matches Abacus's `cuad-demo.py`) |
 | `scripts/prepare_cuad.py` | Builds the CUAD workload: contract selection, chunking, labels |
 | `harness/runner.py` | Entry point, resume and result writing |
+| `harness/proxy.py` | One OpenAI-compatible endpoint for both models; wakes the requested model, batches concurrent requests |
+| `harness/pz_runner.py` | Abacus experiment: per policy, runs Palimpzest against the proxy and records plan, API cost, GPU time, switches, F1 |
+| `harness/pz_query.py` | Runs in the Palimpzest environment: Abacus's CUAD query, API prices for the vLLM models, CUAD validator |
 | `configs/smoke.yaml` | Two small models, for a 4 GB laptop GPU |
 | `configs/smoke_l4.yaml` | The same small models on an L4 |
 | `configs/smoke_8b_l4.yaml` | The same test with the two 8B models of the main experiment |
 | `configs/cuad.yaml` | Main experiment |
 | `configs/cuad_pilot.yaml` | Same plans on the first 40 chunks, one repeat, to measure throughput |
+| `configs/cuad_pz.yaml` | Abacus chooses the plan at API prices (MaxQuality, MinCost, MinTime); the harness measures it on the GPU |
 | `launch/` | Docker (laptop); GCP network setup, VM creation, startup script and CPU test; Slurm + Apptainer (TRUBA); Kubernetes Job |
 | `cloudbuild.*.yaml` | Cloud Build jobs: image build, VM creation with retries, CPU test image |
 | `Dockerfile.cpu`, `tests/stub_vllm/` | CPU image with a stub vLLM for testing without a GPU |
+| `tests/test_proxy.py` | 300 concurrent requests for two models through the proxy, against the stub |
 | `experiments/palimpzest_probe/` | How Palimpzest plans over two self-hosted models |
 
 ## Running
@@ -160,6 +165,29 @@ Constraints found on the L4 with two 8B models:
 
 See `launch/truba.sbatch` and `launch/k8s_job.yaml`.
 
+### Abacus experiment
+
+`configs/cuad_pz.yaml` adds a `palimpzest` section, which switches the runner to
+`harness/pz_runner.py`. Palimpzest runs in its own environment in the image (`/opt/pz`) and sends
+requests for both models to `harness/proxy.py`, which wakes the requested model. Per policy, Abacus
+samples operators on the 25 CUAD train contracts, picks a plan at API list prices and runs it on
+the test chunks. Changes to Palimpzest's defaults, applied at runtime in `pz_query.py`: the
+one-vLLM-model check is lifted, the vLLM models get API prices and their input tokens are counted,
+and the validator scores against CUAD labels instead of calling an OpenAI model. Results go to
+`results/cuad-25-pz/pz_runs.jsonl`.
+
+```bash
+PROJECT=<project-id> ./launch/gcp_upload_cuad.sh      # once: test and train chunks
+PROJECT=<project-id> CONFIG=configs/cuad_pz.yaml MACHINE=g2-standard-16 MAX_RUN=6h RETRY=1 \
+  ./launch/gcp_gpu_run.sh
+```
+
+To test without a GPU, with Palimpzest installed in a separate environment:
+
+```bash
+PATH=$PWD/tests/stub_vllm:$PATH python3 tests/test_proxy.py
+```
+
 ## Output
 
 One JSON line per run in `results/<experiment>/runs.jsonl`:
@@ -180,9 +208,9 @@ One JSON line per run in `results/<experiment>/runs.jsonl`:
 - [x] Palimpzest probe against a stub vLLM
 - [x] GCP pipeline check on a CPU VM (`launch/gcp_cpu_test.sh`)
 - [x] Smoke tests on an L4 with 0.5B and 8B models (two servers sharing one GPU via sleep/wake)
-- [ ] Framework choice (Palimpzest or LOTUS) and the plan layer on top of it
+- [x] Abacus (Palimpzest 1.5.3) on the self-hosted models: switching proxy, API prices, CUAD validator; tested end to end against the stub
 - [x] CUAD subset, chunking, prompts and F1 (tested against the stub; F1 scoring identical to Abacus's on 3,000 random cases)
-- [ ] CUAD pilot on the L4
+- [x] CUAD pilot on the L4
 - [ ] CUAD runs on GCP and analysis
 
 ## References

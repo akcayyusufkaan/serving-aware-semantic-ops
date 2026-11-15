@@ -8,8 +8,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Palimpzest gets its own environment: its pinned dependencies (numpy, litellm) must not change
+# vLLM's. It reuses the image's torch through the system site-packages.
+RUN python3 -m venv --system-site-packages /opt/pz \
+    && /opt/pz/bin/pip install --no-cache-dir palimpzest==1.5.3
+
 COPY harness/ harness/
 COPY configs/ configs/
+
+# Fails the build if the Palimpzest environment cannot load the query module.
+RUN /opt/pz/bin/python -c "import harness.pz_query"
 
 # Model weights are mounted at /models, not baked into the image.
 ENV HF_HOME=/models
