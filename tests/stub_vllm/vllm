@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Stand-in for `vllm serve` used to test the harness and launchers without a GPU.
 
-Implements /health, /metrics, /sleep, /wake_up, /reset_prefix_cache and /v1/chat/completions,
-and fails any completion request sent to a sleeping server.
+Implements /health, /metrics, /sleep, /wake_up, /reset_prefix_cache, /tokenize and
+/v1/chat/completions. Like vLLM, it rejects a completion whose prompt plus max_tokens exceeds
+--max-model-len, and it fails any completion request sent to a sleeping server.
 """
 import json
 import os
@@ -18,6 +19,11 @@ except ImportError:
     NAMES = ["Document Name"]
 
 port = int(sys.argv[sys.argv.index("--port") + 1])
+max_model_len = int(sys.argv[sys.argv.index("--max-model-len") + 1]) if "--max-model-len" in sys.argv else 4096
+
+
+def n_tokens(req):
+    return len(json.dumps(req.get("messages", []))) // 4   # rough stand-in for the tokenizer
 state = {"queries": 0, "hits": 0, "asleep": False}
 
 
@@ -50,11 +56,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(b"ok")
         if self.path.startswith("/reset_prefix_cache"):
             return self._send(b"ok")
+        if self.path.startswith("/tokenize"):
+            return self._send(json.dumps({"count": n_tokens(json.loads(body)), "max_model_len": max_model_len}).encode(),
+                              content_type="application/json")
         if state["asleep"]:
             return self._send(b"server is asleep", status=409)
+        req = json.loads(body) if body else {}
+        if n_tokens(req) + (req.get("max_tokens") or 0) > max_model_len:
+            return self._send(b'{"error": "max_tokens is too large"}', status=400, content_type="application/json")
         if os.environ.get("STUB_LOG"):
             with open(os.environ["STUB_LOG"], "a") as f:
-                f.write(json.dumps({"port": port, "chars": len(body)}) + "\n")
+                f.write(json.dumps({"port": port, "chars": len(body),
+                                    "max_tokens": json.loads(body).get("max_tokens")}) + "\n")
         state["queries"] += 100
         state["hits"] += 50
         content = "ok"

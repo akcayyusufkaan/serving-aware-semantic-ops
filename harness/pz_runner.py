@@ -52,7 +52,7 @@ def run(cfg, out_dir, env):
     labels = {cid: labels[cid] for cid in {r["contract_id"] for r in test_records}}
 
     pool = ServerPool(cfg, out_dir)
-    proxy = SwitchingProxy(pool, pzc.get("proxy_port", 8000))
+    proxy = SwitchingProxy(pool, pzc.get("proxy_port", 8000), pzc.get("max_tokens"))
     try:
         pool.start_all()
         for name in cfg["models"]:
@@ -64,6 +64,7 @@ def run(cfg, out_dir, env):
             pool.reset_cache()
             before = {n: metrics.snapshot(pool.url(n)) for n in cfg["models"]}
             pool.reset_counters()
+            proxy.n_capped = 0
             models = {n: {"hf_id": cfg["models"][n]["hf_id"], **pzc["prices"][n]} for n in cfg["models"]}
             job = {"proxy_url": proxy.url(), "models": models, "policy": spec,
                    "test": pzc["test"], "train": pzc["train"], "n_records": pzc.get("n_records"),
@@ -102,6 +103,7 @@ def run(cfg, out_dir, env):
                 "model_switches": {k: {"n": len(v), "time_s": sum(d for _, d in v)} for k, v in phases.items()},
                 "tokens": {"input": res["input_tokens"], "output": res["output_tokens"]},
                 "parse_errors": parse_errors,
+                "requests_capped": proxy.n_capped,
                 "prefix_cache": {n: metrics.delta(before[n], after[n]) for n in cfg["models"]},
                 "quality": cuad.score(labels, merge_predictions(test_records, preds)),
                 "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

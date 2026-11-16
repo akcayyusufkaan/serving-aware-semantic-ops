@@ -1,0 +1,53 @@
+# Pilot for configs/cuad_pz.yaml: 20 test chunks, two policies, sample budget 20, to measure how
+# long the full run takes before starting it.
+# Abacus (Palimpzest 1.5.3) on the same CUAD chunks and models as configs/cuad.yaml.
+# Abacus samples operators on the 25 train contracts (313 chunks, scored by harness/pz_query.py's
+# validator), picks a plan for each policy at API prices, and runs it on the 25 test contracts
+# (160 chunks). The harness measures what that plan costs on the GPU (time, model switches).
+# max_model_len is larger than in cuad.yaml: Palimpzest's prompts list all 41 categories, and the
+# mixture-of-agents aggregator also receives the proposals (stub run: up to ~20k characters, roughly
+# 5k tokens before real proposals are added). At utilization 0.85 Llama has 1.1 GiB of KV cache,
+# which vLLM reports as enough for a maximum length of 9024 tokens (L4 run, 2026-11-15).
+experiment: cuad-25-pz-pilot
+output_dir: /results
+models:
+  llama:
+    hf_id: meta-llama/Llama-3.1-8B-Instruct
+    port: 8001
+  qwen:
+    hf_id: Qwen/Qwen2.5-7B-Instruct
+    port: 8002
+vllm:
+  gpu_memory_utilization: 0.85
+  max_model_len: 8192
+  enforce_eager: false
+  env: {}
+repeats: 1
+palimpzest:
+  test: /data/cuad_25.jsonl
+  train: /data/cuad_train_25.jsonl
+  labels: /data/cuad_25_labels.json
+  n_records: 20            # first 20 test chunks
+  proxy_port: 8000
+  # Output limit added by the proxy: Palimpzest sets none, and on 2026-11-15 single Llama answers
+  # filled most of the 9,040-token KV cache (358 requests timed out). The control experiment uses 768
+  # for about 20 categories; this operator extracts 41.
+  max_tokens: 2048
+  python: /opt/pz/bin/python
+  policies:
+  - {kind: maxquality}
+  - {kind: mincost}
+  # USD per token, Together AI serverless list prices (model pages, checked 2026-11-15):
+  # Llama 3.1 8B Instruct Turbo 0.18 / 0.18 and Qwen2.5 7B Instruct Turbo 0.30 / 0.30 per 1M input / output tokens.
+  prices:
+    llama: {usd_per_input_token: 1.8e-7, usd_per_output_token: 1.8e-7}
+    qwen: {usd_per_input_token: 3.0e-7, usd_per_output_token: 3.0e-7}
+  optimizer:
+    k: 6
+    j: 4
+    sample_budget: 20
+    seed: 0
+    # Concurrent requests from Palimpzest. Llama's KV cache holds about 9,000 tokens (2-3 requests);
+    # with 32 workers requests queued past the client's 600 s timeout (2026-11-15).
+    max_workers: 8
+    allow_rag_reduction: false

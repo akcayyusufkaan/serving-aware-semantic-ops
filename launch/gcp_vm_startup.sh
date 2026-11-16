@@ -61,6 +61,9 @@ LOG="$WORK/results/vm_$(date +%Y%m%dT%H%M%S).log"
 # Host memory every 5 s (used MiB), to see peaks around model switches.
 ( while true; do echo "$(date +%T) $(free -m | awk '/Mem:/{print $3}')"; sleep 5; done ) > "${LOG%.log}_mem.log" &
 MEM_PID=$!
+# Results every 10 minutes, so a run stopped by MAX_RUN still leaves what it finished in GCS.
+( while sleep 600; do gcloud storage rsync -r "$WORK/results" "$RESULTS" > /dev/null 2>&1; done ) &
+SYNC_PID=$!
 docker run --rm "${GPU_ARGS[@]}" --ipc=host \
   -v "$WORK/hf-cache:/models" \
   -v "$WORK/results:/results" \
@@ -71,7 +74,7 @@ docker run --rm "${GPU_ARGS[@]}" --ipc=host \
 STATUS=${PIPESTATUS[0]}
 echo "harness exited with status $STATUS"
 
-kill "$MEM_PID" 2> /dev/null
+kill "$MEM_PID" "$SYNC_PID" 2> /dev/null
 # Kernel messages (e.g. the OOM killer) and memory state, for diagnosing failed runs.
 { date; free -m; nvidia-smi; dmesg | tail -300; } > "${LOG%.log}_system.log" 2>&1
 

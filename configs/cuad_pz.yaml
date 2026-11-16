@@ -27,6 +27,10 @@ palimpzest:
   labels: /data/cuad_25_labels.json
   n_records: null          # all 160 test chunks
   proxy_port: 8000
+  # Output limit added by the proxy: Palimpzest sets none, and on 2026-11-15 single Llama answers
+  # filled most of the 9,040-token KV cache (358 requests timed out). The control experiment uses 768
+  # for about 20 categories; this operator extracts 41.
+  max_tokens: 2048
   python: /opt/pz/bin/python
   policies:
   - {kind: maxquality}
@@ -42,5 +46,7 @@ palimpzest:
     j: 4
     sample_budget: 50
     seed: 0
-    max_workers: 32
+    # Concurrent requests from Palimpzest. Llama's KV cache holds about 9,000 tokens (2-3 requests);
+    # with 32 workers requests queued past the client's 600 s timeout (2026-11-15).
+    max_workers: 8
     allow_rag_reduction: false

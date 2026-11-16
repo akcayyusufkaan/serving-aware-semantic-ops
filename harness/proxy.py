@@ -7,6 +7,11 @@ Switching policy: the awake model keeps being served while requests for it arriv
 requests are batched; once a request for another model has waited HOLD_S seconds, new requests for
 the awake model are held back, and the switch happens when the in-flight ones have finished.
 Switch count and time are kept by the pool.
+
+max_tokens: requests that set no output limit get this one. Palimpzest sends none, so a model that
+keeps repeating spans generates until the context is full (minutes per request on a small KV cache).
+vLLM rejects a request whose prompt plus max_tokens exceeds max_model_len, so the limit is lowered
+to what is left after the prompt, counted with the server's /tokenize.
 """
 import json
 import threading
@@ -25,9 +30,11 @@ class _Server(ThreadingHTTPServer):
 
 
 class SwitchingProxy:
-    def __init__(self, pool, port):
+    def __init__(self, pool, port, max_tokens=None):
         self.pool = pool
         self.port = port
+        self.max_tokens = max_tokens
+        self.n_capped = 0   # requests that got max_tokens from the proxy
         self.cond = threading.Condition()
         self.inflight = 0
         self.waiting = {}   # model -> arrival times of requests waiting for it
@@ -63,6 +70,17 @@ class SwitchingProxy:
             self.inflight += 1
             self.cond.notify_all()
 
+    def _limit(self, model, req):
+        """proxy.max_tokens, or less when the prompt leaves less room in the context."""
+        with self.cond:
+            self.n_capped += 1
+        try:
+            t = requests.post(self.pool.url(model) + "/tokenize", timeout=60,
+                              json={"model": model, "messages": req.get("messages", []), "add_generation_prompt": True}).json()
+            return max(1, min(self.max_tokens, t["max_model_len"] - t["count"]))
+        except (requests.RequestException, ValueError, KeyError):
+            return self.max_tokens
+
     def _release(self):
         with self.cond:
             self.inflight -= 1
@@ -91,14 +109,19 @@ class SwitchingProxy:
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 try:
-                    model = json.loads(body).get("model", "")
+                    req = json.loads(body)
+                    model = req.get("model", "")
                 except ValueError:
                     return self._reply(400, b'{"error": "invalid JSON"}')
                 model = model.split("/")[-1]
                 if model not in proxy.pool.cfg["models"]:
                     return self._reply(404, json.dumps({"error": f"unknown model {model}"}).encode())
+                cap = proxy.max_tokens and not (req.get("max_tokens") or req.get("max_completion_tokens"))
                 proxy._acquire(model)
                 try:
+                    if cap:
+                        req["max_tokens"] = proxy._limit(model, req)
+                        body = json.dumps(req).encode()
                     r = requests.post(proxy.pool.url(model) + self.path, data=body,
                                       headers={"Content-Type": "application/json"}, timeout=1200)
                     self._reply(r.status_code, r.content, r.headers.get("Content-Type", "application/json"))
