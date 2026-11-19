@@ -19,9 +19,21 @@ WORK=${SEMOPS_WORK:-/opt/semops}
 RESULTS="gs://${BUCKET}/results"
 
 mkdir -p "$WORK/hf-cache" "$WORK/results" "$WORK/data"
+STAMP=$(date +%Y%m%dT%H%M%S)
+SETUP_LOG="$WORK/results/vm_${STAMP}_setup.log"
+
+# apt is often locked by unattended upgrades right after boot: wait for the lock and retry.
+APT=(apt-get -q -o DPkg::Lock::Timeout=600)
+apt_install() {
+  for _ in 1 2 3; do
+    "${APT[@]}" update && "${APT[@]}" install -y "$@" && return 0
+    sleep 30
+  done
+  return 1
+}
 
 if ! command -v docker > /dev/null; then
-  apt-get update -q && apt-get install -y -q docker.io
+  apt_install docker.io >> "$SETUP_LOG" 2>&1 || echo "docker install failed" >> "$SETUP_LOG"
 fi
 gcloud auth configure-docker "${IMAGE%%/*}" --quiet
 docker pull "$IMAGE"
@@ -51,13 +63,13 @@ if lspci | grep -qi nvidia; then
     curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
       sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
       > /etc/apt/sources.list.d/nvidia-container-toolkit.list
-    apt-get update -q && apt-get install -y -q nvidia-container-toolkit
+    apt_install nvidia-container-toolkit >> "$SETUP_LOG" 2>&1 || echo "nvidia-container-toolkit install failed" >> "$SETUP_LOG"
     nvidia-ctk runtime configure --runtime=docker && systemctl restart docker
   fi
   GPU_ARGS=(--gpus all)
 fi
 
-LOG="$WORK/results/vm_$(date +%Y%m%dT%H%M%S).log"
+LOG="$WORK/results/vm_${STAMP}.log"
 # Host memory every 5 s (used MiB), to see peaks around model switches.
 ( while true; do echo "$(date +%T) $(free -m | awk '/Mem:/{print $3}')"; sleep 5; done ) > "${LOG%.log}_mem.log" &
 MEM_PID=$!

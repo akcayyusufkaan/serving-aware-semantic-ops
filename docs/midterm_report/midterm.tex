@@ -35,14 +35,14 @@ whose operators are executed by large language models (LLMs). The optimizer pick
 price. When the same open models are served on one's own GPU with vLLM, the cost is GPU time
 instead, and GPU time depends on batching, prefix-cache reuse and which model is resident in GPU
 memory, none of which a token count sees. This project measures how far the two cost views
-diverge. We built a portable harness that serves two 8B models on a single NVIDIA L4 GPU, switching
-between them with vLLM's sleep mode, and ran four hand-fixed plans under two execution strategies on
+diverge. We built a portable harness that serves two 7--8B models on a single NVIDIA L4 GPU, switching
+between them with vLLM's sleep mode, and ran four manually specified plans under two execution strategies on
 the CUAD contract-review benchmark. Execution order alone changes GPU time by 7.8--11.5$\times$ at
 identical token cost, and the plan that is cheapest at API prices (all-Llama) takes 58\% more GPU time
-than the fastest plan (all-Qwen), which also has the highest F1. We also ran Abacus on the self-hosted models.
+than the fastest plan (all-Qwen, both batched), which also has the highest F1. We also ran Abacus on the self-hosted models.
 For the MaxQuality policy it again chose Mixture-of-Agents; executing that plan cost 9.9$\times$ more
-at GPU prices than Abacus's API-price estimate, and the first run exposed serving problems
-(unbounded outputs, a small KV cache) that we fix before the full Abacus run.
+at GPU prices than at API prices. The first run also exposed serving problems (unbounded outputs, a
+small KV cache), which we have addressed for the next run.
 \end{abstract}
 
 \section{Introduction}
@@ -58,8 +58,8 @@ them on a validation set and chooses a plan for a user policy such as ``maximize
 
 The cost model is additive: an operator costs its input and output tokens times the model's API
 price, and a plan costs the sum of its operators. This is accurate for a pay-per-token API. It is
-not obviously accurate when an organization serves open models on its own GPUs, which is common for
-privacy or volume reasons. There, the cost is GPU time, and GPU time for the same tokens depends on
+not obviously accurate when an organization serves open models on its own GPUs, for example for
+privacy reasons or at high volume. There, the cost is GPU time, and GPU time for the same tokens depends on
 (i)~how many requests the server can batch together, (ii)~how many prompt tokens are served from the
 prefix cache, and (iii)~whether the model a step needs is already in GPU memory. Liu et
 al.~\cite{liu2025optimizing} showed that reordering the rows and columns of an LLM query increases
@@ -127,7 +127,7 @@ Multi-model schedulers \cite{multimodelsched} & Switching & Reports 4--5\,s to r
 
 \subsection{Two experiments}
 
-\textbf{Control experiment (hand-fixed plans).} We fix four plans and two execution strategies
+\textbf{Control experiment (fixed plans).} We specify four plans and two execution strategies
 ourselves. Because we choose the plans, we can isolate the effect of batching, prefix caching and
 model switching. Its results also serve as the reference for interpreting the plans Abacus chooses.
 
@@ -142,7 +142,7 @@ hourly GPU price. The two rankings are compared with Kendall's $\tau$ and two Pa
 \subsection{Models, plans and strategies}
 
 The models are Llama-3.1-8B-Instruct and Qwen2.5-7B-Instruct. API prices are Together AI list
-prices: 0.18\,USD per million tokens for Llama-3.1-8B and 0.30\,USD for Qwen2.5-7B-Turbo, for both
+prices: 0.18\,USD per million tokens for Llama-3.1-8B and 0.30\,USD for Qwen2.5-7B-Instruct-Turbo, for both
 input and output \cite{togetherllama,togetherqwen}. The GPU price is the on-demand price of the
 \code{g2-standard-16} VM (one L4, 16 vCPUs, 64\,GB RAM), 1.147\,USD per hour
 \cite{gcppricing}; this is the price of the whole VM, not only the GPU.
@@ -188,7 +188,7 @@ cases.
 \subsection{What is held fixed and what is measured}
 
 Held fixed: the config (its hash is stored with every run), GPU type, vLLM version (0.30.0), image
-digest, temperature 0, and an empty prefix cache with the first model awake at the start of every
+digest, temperature 0 in the control experiment, and an empty prefix cache with the first model awake at the start of every
 run. Measured: wall-clock GPU time, number and duration of model switches, prompt, completion and
 cached tokens per model, prefix-cache queries and hits from vLLM's \code{/metrics}, and F1.
 
@@ -197,15 +197,15 @@ cached tokens per model, prefix-cache queries and hits from vLLM's \code{/metric
 \textbf{Harness.} One Docker image (the official vLLM image plus our harness), one YAML config and
 one command. The runner starts one vLLM server per model and keeps exactly one awake using vLLM's
 sleep mode \cite{kwon2023vllm}: a sleeping server moves its weights to CPU memory and drops its KV
-cache, so two 8B models share one 24\,GB L4. Every (plan, strategy, repeat) combination is run from
+cache, so the two models share one 24\,GB L4. Every (plan, strategy, repeat) combination is run from
 the same starting state and appended as one JSON line. Runs have deterministic IDs, so an interrupted
 experiment resumes where it stopped. The same image runs on a laptop, a GCP VM, TRUBA (Slurm and
 Apptainer) or Kubernetes; only the launcher differs.
 
 \textbf{GCP pipeline.} A launcher uploads the config to Cloud Storage and starts a Cloud Build job
-that builds the image and creates the GPU VM, retrying zones in six regions because L4 GPUs are
+that builds the image and creates the GPU VM, retrying six zones in two regions because L4 GPUs are
 frequently out of stock. The VM's startup script pulls the image, restores earlier results, runs the
-harness, uploads results with memory and kernel logs, and deletes itself. VMs have no external IP.
+harness, uploads results every 10 minutes and, at the end, with memory and kernel logs, and deletes itself. VMs have no external IP.
 Spending is capped: a budget on cost after credits triggers a Cloud Run function that disables
 billing for the project.
 
@@ -226,8 +226,9 @@ installed package:
 tokens. We count every prompt token at the input price, as an API without a cache discount would.
 \item The default validator calls an OpenAI model; ours scores sampled outputs against the CUAD
 labels of the training chunks.
-\item Palimpzest sets no output-token limit. The proxy adds one (2,048 tokens) to requests without
-a limit (introduced after the first run; Section~\ref{sec:abacusres}).
+\item Palimpzest sets no output-token limit. The proxy adds one to requests without a limit: 2,048
+tokens, or fewer when the prompt leaves less room in the context (introduced after the first run;
+Section~\ref{sec:abacusres}).
 \item Model priors (MMLU-Pro score, speed) are predicted from the Hugging Face model ID rather than
 the short served name, which had given both models the same prior.
 \end{enumerate}
@@ -236,12 +237,12 @@ The integration was tested end to end against a stub vLLM server (Section~\ref{s
 \section{Results}\label{sec:results}
 
 All runs use one NVIDIA L4 on a \code{g2-standard-16} VM and vLLM 0.30.0. Each result is read from
-the run's \code{runs.jsonl} in the project bucket.
+the run's result file (\code{runs.jsonl} or \code{pz\_runs.jsonl}) in the project bucket.
 
 \subsection{First measurements (small workload)}
 
 A small test workload (six reviews, two operators, 3 repeats differing by less than 1\%) with the two
-8B models showed the effects in their purest form (Table~\ref{tab:smoke}). One model switch takes
+models showed the effects most clearly (Table~\ref{tab:smoke}). One model switch takes
 3.03\,s, and under the naive strategy switches account for 89--91\% of the run time of the
 multi-model plans. Switching also discards the prefix cache: \code{mixed} under naive gets no cached
 prompt tokens, against 320 under batched.
@@ -312,9 +313,11 @@ API cost of a plan is the same for both.}\label{fig:strategies}
 prices the order is all-Llama, mixed, all-Qwen, MoA; on the GPU (batched) it is all-Qwen, mixed,
 all-Llama, MoA (Figure~\ref{fig:ranking}). All-Llama costs 60\% of all-Qwen at API prices but takes
 58\% more GPU time, while both plans use almost the same tokens (443k and 445k prompt tokens). The
-difference therefore comes from how fast each model is served, not from the token count. A possible
-cause, not yet measured, is the KV-cache footprint: 128\,KiB per token for Llama-3.1-8B against
-56\,KiB for Qwen2.5-7B, so the same memory holds more concurrent Qwen requests. Kendall's $\tau$
+difference therefore comes from how fast each model is served, not from the token count. A likely
+cause is the KV-cache footprint: 128\,KiB per token for Llama-3.1-8B against 56\,KiB for
+Qwen2.5-7B. At the same memory setting vLLM allocated 9,040 tokens of KV cache to Llama and 32,992 to
+Qwen (Section~\ref{sec:abacusres}), so Qwen can process more requests at once; the effect on
+throughput has not yet been isolated. Kendall's $\tau$
 between API cost and GPU time is 0.0 for the batched plans and 0.33 for the naive ones, with only four
 plans per ranking.
 
@@ -360,17 +363,17 @@ prices; GPU cost is GPU time times the hourly VM price. Source: \code{results/cu
 \cite{russo2025abacus}, MaxQuality selected a Mixture-of-Agents operator, the plan type that is
 dominated in our control experiment.
 
-\textbf{The API estimate misses the GPU cost by an order of magnitude.} Executing the plan cost
-2.33\,USD at GPU prices against 0.24\,USD at API prices (9.9$\times$); for the hand-fixed
+\textbf{At GPU prices the plan costs an order of magnitude more.} Executing the plan cost
+2.33\,USD at GPU prices against 0.24\,USD at API prices (9.9$\times$); for the fixed
 Mixture-of-Agents plan in the control experiment the ratio was 1.6$\times$ (batched).
 
-\textbf{The serving logs explain why.} vLLM could allocate only 9,040 tokens of KV cache to Llama
+\textbf{The serving logs show why.} vLLM could allocate only 9,040 tokens of KV cache to Llama
 (32,992 to Qwen), so Llama served about one long request at a time, at about 16 output tokens per
 second. Palimpzest sets no output limit, and when the run stopped a single running Llama request occupied about 90\% of that cache. The
 client timed out on 358 requests after 600\,s, and 34 answers could not be parsed. These failures
 likely lower quality as well: F1 was 0.31 (precision 0.59, recall 0.21), so this F1 is not comparable with the
-control experiment. The proxy now adds an output limit, and a pilot on 20 chunks will measure the run
-time before the full Abacus run is repeated.
+control experiment. The proxy now adds an output limit and Palimpzest sends at most 8 concurrent
+requests; a pilot on 20 chunks will measure the run time before the full Abacus run is repeated.
 
 \section{Limitations}
 
