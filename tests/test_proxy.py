@@ -50,9 +50,11 @@ try:
                          json={"model": "a", "messages": [{"role": "user", "content": "x" * 1900}]}).status_code
     with open(os.environ["STUB_LOG"]) as f:
         limits = [json.loads(line)["max_tokens"] for line in f]
-    print("max_tokens seen by the servers:", sorted(set(limits)), "| capped by proxy:", proxy.n_capped)
+    print("max_tokens seen by the servers:", sorted(set(limits)), "| capped by proxy:", proxy.n_capped,
+          "| truncated:", proxy.n_truncated)
     assert not bad and unknown == 404 and capped == 200 and long == 200
     assert limits.count(123) == 300 and limits[-2] == 7 and 0 < limits[-1] < 123 and proxy.n_capped == 301
+    assert proxy.n_truncated == 1   # only the request with max_tokens 7 (the stub stops at "length" below 10)
     print("OK")
 finally:
     proxy.stop()

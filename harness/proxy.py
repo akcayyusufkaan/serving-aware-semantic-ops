@@ -34,7 +34,8 @@ class SwitchingProxy:
         self.pool = pool
         self.port = port
         self.max_tokens = max_tokens
-        self.n_capped = 0   # requests that got max_tokens from the proxy
+        self.n_capped = 0      # requests that got max_tokens from the proxy
+        self.n_truncated = 0   # answers that stopped at max_tokens (finish_reason "length")
         self.cond = threading.Condition()
         self.inflight = 0
         self.waiting = {}   # model -> arrival times of requests waiting for it
@@ -81,6 +82,13 @@ class SwitchingProxy:
         except (requests.RequestException, ValueError, KeyError):
             return self.max_tokens
 
+    @staticmethod
+    def _truncated(response):
+        try:
+            return any(c.get("finish_reason") == "length" for c in response.json().get("choices", []))
+        except ValueError:
+            return False
+
     def _release(self):
         with self.cond:
             self.inflight -= 1
@@ -125,6 +133,9 @@ class SwitchingProxy:
                     r = requests.post(proxy.pool.url(model) + self.path, data=body,
                                       headers={"Content-Type": "application/json"}, timeout=1200)
                     self._reply(r.status_code, r.content, r.headers.get("Content-Type", "application/json"))
+                    if r.ok and proxy._truncated(r):
+                        with proxy.cond:
+                            proxy.n_truncated += 1
                 except requests.RequestException as e:
                     self._reply(502, json.dumps({"error": str(e)}).encode())
                 finally:

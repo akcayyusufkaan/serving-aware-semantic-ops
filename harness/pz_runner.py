@@ -64,7 +64,7 @@ def run(cfg, out_dir, env):
             pool.reset_cache()
             before = {n: metrics.snapshot(pool.url(n)) for n in cfg["models"]}
             pool.reset_counters()
-            proxy.n_capped = 0
+            proxy.n_capped = proxy.n_truncated = 0
             models = {n: {"hf_id": cfg["models"][n]["hf_id"], **pzc["prices"][n]} for n in cfg["models"]}
             job = {"proxy_url": proxy.url(), "models": models, "policy": spec,
                    "test": pzc["test"], "train": pzc["train"], "n_records": pzc.get("n_records"),
@@ -104,6 +104,7 @@ def run(cfg, out_dir, env):
                 "tokens": {"input": res["input_tokens"], "output": res["output_tokens"]},
                 "parse_errors": parse_errors,
                 "requests_capped": proxy.n_capped,
+                "responses_truncated": proxy.n_truncated,
                 "prefix_cache": {n: metrics.delta(before[n], after[n]) for n in cfg["models"]},
                 "quality": cuad.score(labels, merge_predictions(test_records, preds)),
                 "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

@@ -6,7 +6,7 @@
 # mixture-of-agents aggregator also receives the proposals (stub run: up to ~20k characters, roughly
 # 5k tokens before real proposals are added). At utilization 0.85 Llama has 1.1 GiB of KV cache,
 # which vLLM reports as enough for a maximum length of 9024 tokens (L4 run, 2026-11-15).
-experiment: cuad-25-pz
+experiment: cuad-25-pz-full
 output_dir: /results
 models:
   llama:
@@ -44,7 +44,8 @@ palimpzest:
   optimizer:
     k: 6
     j: 4
-    sample_budget: 50
+    # 20 as in the pilot (cuad-25-pz-pilot): with 50, MinCost alone was estimated at about 6 hours.
+    sample_budget: 20
     seed: 0
     # Concurrent requests from Palimpzest. Llama's KV cache holds about 9,000 tokens (2-3 requests);
     # with 32 workers requests queued past the client's 600 s timeout (2026-11-15).
